@@ -67,6 +67,7 @@ Please open an issue with the `feature` or `enhancement` tag to request new back
    - [Testing Redis](#testing-redis)
 - [MongoDB](#mongodb)
    - [Testing MongoDB](#testing-mongodb)
+- [LDAP](#ldap)
 - [Custom \(experimental\)](#custom-experimental)
    - [Testing Custom](#testing-custom)
 - [gRPC](#grpc)
@@ -1328,6 +1329,39 @@ If you wish to test Mongo's auth, you'll need to run mongo with the `--auth` fla
    //authOpts["mongo_username"] = "go_auth_test"
    //authOpts["mongo_password"] = "go_auth_test"
 ```
+
+
+### LDAP
+
+The `ldap` backend allows to query an LDAP or Active Directory Server.
+It allows to specify filters for user and superuser checks, as well as ACL checks.
+
+Options for `ldap` are the following:
+
+
+| Option                         | default              | Mandatory | Meaning                                                                                                                |
+|--------------------------------|----------------------|:---------:|------------------------------------------------------------------------------------------------------------------------|
+| auth_opt_ldap_url              | ldap://localhost:389 |     N     | LDAP Server URL                                                                                                        |
+| auth_opt_ldap_base_dn          |                      |     Y     | LDAP Base DN                                                                                                           |
+| auth_opt_ldap_bind_dn          |                      |     Y     | LDAP Bind DN                                                                                                           |
+| auth_opt_ldap_bind_password    |                      |     Y     | LDAP Bind Password                                                                                                     |
+| auth_opt_ldap_user_filter      |                      |     Y     | LDAP User Filter, The first `%s` will be a placeholder for the username                                                |
+| auth_opt_ldap_superuser_filter | ""                   |     N     | LDAP Superuser Filter, The first `%s` will be a placeholder for the username                                           |
+| auth_opt_ldap_acl_filter       | ""                   |     N     | LDAP ACL Filter, The first `%s` will be a placeholder for the username, the second `%s` for the topic and `%d` for acc |
+
+
+Default Config for `ldap` with [lldap](https://github.com/lldap/lldap):
+
+
+```
+auth_opt_ldap_url ldap://lldap:3890
+auth_opt_ldap_base_dn dc=example,dc=com
+auth_opt_ldap_bind_dn uid=mosquitto,ou=people,dc=example,dc=com
+auth_opt_ldap_bind_password changeit
+auth_opt_ldap_user_filter (&(uid=%s)(objectClass=person)(memberOf=mqtt))
+auth_opt_ldap_superuser_filter (&(uid=%s)(objectClass=person)(memberOf=mqtt_superuser))
+```
+
 
 ### Custom
 
