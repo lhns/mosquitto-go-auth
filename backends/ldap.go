@@ -2,7 +2,6 @@ package backends
 
 import (
 	"fmt"
-
 	"github.com/go-ldap/ldap/v3"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -103,15 +102,19 @@ func (o LDAP) GetUser(username, password, clientid string) (bool, error) {
 		0,
 		0,
 		false,
-		fmt.Sprintf(o.UserFilter, username),
+		fmt.Sprintf(o.UserFilter, ldap.EscapeFilter(username)),
 		[]string{"dn"},
 		nil,
 	)
 
 	searchResult, err := o.Conn.Search(searchRequest)
-	if err != nil || len(searchResult.Entries) != 1 {
+	if err != nil {
 		log.Debugf("LDAP user search error: %s", err)
 		return false, err
+	}
+	if len(searchResult.Entries) != 1 {
+		log.Debugf("LDAP user search returned %d entries", len(searchResult.Entries))
+		return false, nil
 	}
 
 	userDN := searchResult.Entries[0].DN
@@ -141,7 +144,7 @@ func (o LDAP) GetSuperuser(username string) (bool, error) {
 
 	//If there's no superuser filter, assume all privileges for all users.
 	if o.SuperuserFilter == "" {
-		return true, nil
+		return false, nil
 	}
 
 	searchRequest := ldap.NewSearchRequest(
@@ -151,14 +154,18 @@ func (o LDAP) GetSuperuser(username string) (bool, error) {
 		0,
 		0,
 		false,
-		fmt.Sprintf(o.SuperuserFilter, username),
+		fmt.Sprintf(o.SuperuserFilter, ldap.EscapeFilter(username)),
 		[]string{"dn"},
 		nil,
 	)
 
 	searchResult, err := o.Conn.Search(searchRequest)
-	if err != nil || len(searchResult.Entries) != 1 {
+	if err != nil {
 		log.Debugf("LDAP superuser search error: %s", err)
+		return false, nil
+	}
+	if len(searchResult.Entries) != 1 {
+		log.Debugf("LDAP superuser search returned %d entries", len(searchResult.Entries))
 		return false, err
 	}
 
@@ -179,15 +186,19 @@ func (o LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 		0,
 		0,
 		false,
-		fmt.Sprintf(o.AclFilter, username, topic, acc),
+		fmt.Sprintf(o.AclFilter, ldap.EscapeFilter(username), ldap.EscapeFilter(topic), acc),
 		[]string{"dn"},
 		nil,
 	)
 
 	searchResult, err := o.Conn.Search(searchRequest)
-	if err != nil || len(searchResult.Entries) != 1 {
+	if err != nil {
 		log.Debugf("LDAP acl search error: %s", err)
 		return false, err
+	}
+	if len(searchResult.Entries) != 1 {
+		log.Debugf("LDAP acl search returned %d entries", len(searchResult.Entries))
+		return false, nil
 	}
 
 	return true, nil
