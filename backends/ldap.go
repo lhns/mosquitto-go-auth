@@ -266,6 +266,9 @@ func (o LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 		log.Debugf("LDAP acl search error: %s", err)
 		return false, err
 	}
+	if len(searchResult.Entries) == 0 {
+		log.Debugf("LDAP acl search returned 0 entries", len(searchResult.Entries))
+	}
 
 	// Iterate through the results and check for topic access
 	for _, entry := range searchResult.Entries {
