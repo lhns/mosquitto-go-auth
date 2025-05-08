@@ -1339,15 +1339,18 @@ It allows to specify filters for user and superuser checks, as well as ACL check
 Options for `ldap` are the following:
 
 
-| Option                         | default              | Mandatory | Meaning                                                                                                                |
-|--------------------------------|----------------------|:---------:|------------------------------------------------------------------------------------------------------------------------|
-| auth_opt_ldap_url              | ldap://localhost:389 |     N     | LDAP Server URL                                                                                                        |
-| auth_opt_ldap_base_dn          |                      |     Y     | LDAP Base DN                                                                                                           |
-| auth_opt_ldap_bind_dn          |                      |     Y     | LDAP Bind DN                                                                                                           |
-| auth_opt_ldap_bind_password    |                      |     Y     | LDAP Bind Password                                                                                                     |
-| auth_opt_ldap_user_filter      |                      |     Y     | LDAP User Filter, The first `%s` will be a placeholder for the username                                                |
-| auth_opt_ldap_superuser_filter | ""                   |     N     | LDAP Superuser Filter, The first `%s` will be a placeholder for the username                                           |
-| auth_opt_ldap_acl_filter       | ""                   |     N     | LDAP ACL Filter, The first `%s` will be a placeholder for the username, the second `%s` for the topic and `%d` for acc |
+| Option                           | default              | Mandatory | Meaning                                                            |
+|----------------------------------|----------------------|:---------:|--------------------------------------------------------------------|
+| auth_opt_ldap_url                | ldap://localhost:389 |     N     | LDAP Server URL                                                    |
+| auth_opt_ldap_base_dn            |                      |     Y     | LDAP Base DN                                                       |
+| auth_opt_ldap_group_base_dn      |                      |     N     | LDAP Group Base DN, Required for acl checks                        |
+| auth_opt_ldap_bind_dn            |                      |     Y     | LDAP Bind DN                                                       |
+| auth_opt_ldap_bind_password      |                      |     Y     | LDAP Bind Password                                                 |
+| auth_opt_ldap_user_filter        |                      |     Y     | LDAP User Filter, `%s` will be a placeholder for the username      |
+| auth_opt_ldap_group_filter       | (member=%s)          |     N     | LDAP Group Filter, `%s` will be a placeholder for the username     |
+| auth_opt_ldap_superuser_filter   | ""                   |     N     | LDAP Superuser Filter, `%s` will be a placeholder for the username |
+| ldap_acl_topic_pattern_attribute | ""                   |     N     | LDAP Attribute containing topic patterns                           |
+| ldap_acl_acc_attribute           | ""                   |     N     | LDAP Attribute containing the access level                         |
 
 
 Default Config for `ldap` with [lldap](https://github.com/lldap/lldap):

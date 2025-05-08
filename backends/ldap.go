@@ -5,17 +5,22 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"strconv"
+	"strings"
 )
 
 type LDAP struct {
-	Conn            *ldap.Conn
-	Url             string
-	BaseDN          string
-	BindDN          string
-	BindPass        string
-	UserFilter      string
-	SuperuserFilter string
-	AclFilter       string
+	Conn                     *ldap.Conn
+	Url                      string
+	BaseDN                   string
+	GroupBaseDN              string
+	BindDN                   string
+	BindPass                 string
+	UserFilter               string
+	GroupFilter              string
+	SuperuserFilter          string
+	AclTopicPatternAttribute string
+	AclAccAttribute          string
 }
 
 func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
@@ -26,9 +31,12 @@ func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
 	missingOptions := ""
 
 	var o = LDAP{
-		Url:             "ldap://localhost:389",
-		SuperuserFilter: "",
-		AclFilter:       "",
+		Url:                      "ldap://localhost:389",
+		GroupBaseDN:              "",
+		GroupFilter:              "(member=%s)",
+		SuperuserFilter:          "",
+		AclTopicPatternAttribute: "",
+		AclAccAttribute:          "",
 	}
 
 	if host, ok := authOpts["ldap_url"]; ok {
@@ -40,6 +48,10 @@ func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
 	} else {
 		ldapOk = false
 		missingOptions += " ldap_base_dn"
+	}
+
+	if groupBaseDN, ok := authOpts["ldap_group_base_dn"]; ok {
+		o.GroupBaseDN = groupBaseDN
 	}
 
 	if bindDN, ok := authOpts["ldap_bind_dn"]; ok {
@@ -63,12 +75,20 @@ func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
 		missingOptions += " ldap_user_filter"
 	}
 
+	if groupFilter, ok := authOpts["ldap_group_filter"]; ok {
+		o.GroupFilter = groupFilter
+	}
+
 	if superuserFilter, ok := authOpts["ldap_superuser_filter"]; ok {
 		o.SuperuserFilter = superuserFilter
 	}
 
-	if aclFilter, ok := authOpts["ldap_acl_filter"]; ok {
-		o.AclFilter = aclFilter
+	if aclTopicPatternAttribute, ok := authOpts["ldap_acl_topic_pattern_attribute"]; ok {
+		o.AclTopicPatternAttribute = aclTopicPatternAttribute
+	}
+
+	if aclAccAttribute, ok := authOpts["ldap_acl_acc_attribute"]; ok {
+		o.AclAccAttribute = aclAccAttribute
 	}
 
 	//Exit if any mandatory option is missing.
@@ -172,22 +192,72 @@ func (o LDAP) GetSuperuser(username string) (bool, error) {
 	return true, nil
 }
 
+// checks whether an MQTT topic matches a pattern with wildcards (+, #) according to MQTT spec rules.
+func matchMQTT(topic, pattern string) bool {
+	topicLevels := strings.Split(topic, "/")
+	patternLevels := strings.Split(pattern, "/")
+
+	for i := 0; i < len(patternLevels); i++ {
+		// If we've run out of topic levels but pattern still has more
+		if i >= len(topicLevels) {
+			// Only valid if current pattern is '#' AND it's the last part
+			// '#' can match zero or more topic levels, so it can match "nothing"
+			return patternLevels[i] == "#" && i == len(patternLevels)-1
+		}
+
+		switch patternLevels[i] {
+		case "#":
+			// '#' must be last in pattern; if so, it matches all remaining topic levels
+			return i == len(patternLevels)-1
+
+		case "+":
+			// '+' matches exactly one topic level, so we just continue to next
+			continue
+
+		default:
+			// If it's not a wildcard, it must match the topic level exactly
+			if patternLevels[i] != topicLevels[i] {
+				return false
+			}
+		}
+	}
+
+	// After processing pattern, topic must not have any extra levels
+	return len(topicLevels) == len(patternLevels)
+}
+
 func (o LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
 
-	//If there's no acl filter, assume all privileges for all users.
-	if o.AclFilter == "" {
+	attributes := []string{}
+
+	if o.AclTopicPatternAttribute != "" {
+		attributes = append(attributes, o.AclTopicPatternAttribute)
+	}
+
+	if o.AclAccAttribute != "" {
+		attributes = append(attributes, o.AclAccAttribute)
+	}
+
+	//If there are no acl attributes defined, assume all privileges for all users.
+	if len(attributes) == 0 {
 		return true, nil
 	}
 
+	//If there is no groupBaseDN, return false.
+	if o.GroupBaseDN == "" {
+		log.Debugf("ldap_group_base_dn not set, cannot check ACL")
+		return false, nil
+	}
+
 	searchRequest := ldap.NewSearchRequest(
-		o.BaseDN,
+		o.GroupBaseDN,
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0,
 		0,
 		false,
-		fmt.Sprintf(o.AclFilter, ldap.EscapeFilter(username), ldap.EscapeFilter(topic), acc),
-		[]string{"dn"},
+		fmt.Sprintf(o.GroupFilter, ldap.EscapeFilter(username)),
+		attributes,
 		nil,
 	)
 
@@ -196,12 +266,33 @@ func (o LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 		log.Debugf("LDAP acl search error: %s", err)
 		return false, err
 	}
-	if len(searchResult.Entries) != 1 {
-		log.Debugf("LDAP acl search returned %d entries", len(searchResult.Entries))
-		return false, nil
+
+	// Iterate through the results and check for topic access
+	for _, entry := range searchResult.Entries {
+		//If there is an acc attribute, check if the access level matches.
+		if o.AclAccAttribute != "" {
+			accAttr := entry.GetAttributeValue(o.AclAccAttribute)
+			if accAttr != "" && accAttr != strconv.Itoa(int(acc)) {
+				continue
+			}
+		}
+
+		var topicPatterns []string
+
+		if o.AclTopicPatternAttribute != "" {
+			topicPatterns = entry.GetAttributeValues(o.AclTopicPatternAttribute)
+		}
+
+		// Check the access levels and topic patterns for a match
+		for _, pattern := range topicPatterns {
+			if matchMQTT(topic, pattern) {
+				return true, nil
+			}
+		}
 	}
 
-	return true, nil
+	// No matching topic pattern found
+	return false, nil
 }
 
 // GetName returns the backend's name
