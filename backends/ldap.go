@@ -272,11 +272,20 @@ func (o LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 
 	// Iterate through the results and check for topic access
 	for _, entry := range searchResult.Entries {
-		//If there is an acc attribute, check if the access level matches.
+		// If there is an acc attribute, check if the access level matches.
 		if o.AclAccAttribute != "" {
-			accAttr := entry.GetAttributeValue(o.AclAccAttribute)
-			if accAttr != "" && accAttr != strconv.Itoa(int(acc)) {
-				continue
+			accessStr := entry.GetAttributeValue(o.AclAccAttribute)
+			if accessStr != "" {
+				access, err := strconv.ParseInt(accessStr, 10, 32)
+				if err != nil {
+					log.Debugf("LDAP acl failed to parse %s as int32: %s", accessStr, err)
+					continue
+				}
+
+				// Check if all bits in acc are present in access
+				if int32(access)&acc != acc {
+					continue
+				}
 			}
 		}
 
