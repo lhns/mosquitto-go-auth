@@ -1335,6 +1335,7 @@ If you wish to test Mongo's auth, you'll need to run mongo with the `--auth` fla
 
 The `ldap` backend allows to query an LDAP or Active Directory Server.
 It allows to specify filters for user and superuser checks, as well as ACL checks.
+Using the cache feature helps with slow LDAP servers, but be careful with the cache size and expiration time.
 
 Options for `ldap` are the following:
 
@@ -1359,10 +1360,13 @@ Default Config for `ldap` with [lldap](https://github.com/lldap/lldap):
 ```
 auth_opt_ldap_url ldap://lldap:3890
 auth_opt_ldap_base_dn dc=example,dc=com
+auth_opt_ldap_group_base_dn ou=groups,dc=example,dc=com
 auth_opt_ldap_bind_dn uid=mosquitto,ou=people,dc=example,dc=com
 auth_opt_ldap_bind_password changeit
 auth_opt_ldap_user_filter (&(uid=%s)(objectClass=person)(memberOf=mqtt))
 auth_opt_ldap_superuser_filter (&(uid=%s)(objectClass=person)(memberOf=mqtt_superuser))
+auth_opt_ldap_acl_topic_pattern_attribute mqtt_topic_pattern
+auth_opt_ldap_acl_acc_attribute mqtt_topic_acc
 ```
 
 
