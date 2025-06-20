@@ -116,13 +116,28 @@ func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClie
 		return l, errors.Errorf("LDAP backend error: missing options:%s", missingOptions)
 	}
 
-	//Check if the LDAP server is reachable
+	// Connect to the LDAP server and bind with the provided credentials.
+	err := l.reconnectLDAP()
+
+	return l, err
+}
+
+func (l LDAP) reconnectLDAP() error {
+
+	if l.client != nil {
+		log.Debugf("Reconnecting to LDAP server")
+
+		l.Halt()
+	}
+
+	log.Debugf("Connecting to LDAP server at %s", l.Url)
+
 	ldapClient, err := l.factory(l)
 
 	if err != nil {
 		log.Errorf("LDAP connection error: %s", err)
 
-		return l, err
+		return err
 	}
 
 	l.client = ldapClient
@@ -138,10 +153,10 @@ func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClie
 			log.Errorf("LDAP cleanup error: %s", closeErr)
 		}
 
-		return l, err
+		return err
 	}
 
-	return l, nil
+	return nil
 }
 
 func (l LDAP) GetUser(username, password, clientid string) (bool, error) {
@@ -168,6 +183,10 @@ func (l LDAP) GetUser(username, password, clientid string) (bool, error) {
 		}
 
 		log.Errorf("LDAP user search error: %s", err)
+
+		if ldapErr, ok := err.(*ldap.Error); ok && ldapErr.ResultCode == ldap.ErrorNetwork {
+			_ = l.reconnectLDAP()
+		}
 
 		return false, err
 	}
@@ -237,6 +256,10 @@ func (l LDAP) GetSuperuser(username string) (bool, error) {
 
 		log.Errorf("LDAP superuser search error: %s", err)
 
+		if ldapErr, ok := err.(*ldap.Error); ok && ldapErr.ResultCode == ldap.ErrorNetwork {
+			_ = l.reconnectLDAP()
+		}
+
 		return false, err
 	}
 
@@ -294,6 +317,10 @@ func (l LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 		}
 
 		log.Errorf("LDAP acl search error: %s", err)
+
+		if ldapErr, ok := err.(*ldap.Error); ok && ldapErr.ResultCode == ldap.ErrorNetwork {
+			_ = l.reconnectLDAP()
+		}
 
 		return false, err
 	}
