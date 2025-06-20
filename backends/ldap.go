@@ -32,7 +32,7 @@ type LDAP struct {
 	AclAccAttribute          string
 }
 
-func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
+func NewLDAP(authOpts map[string]string, logLevel log.Level) (*LDAP, error) {
 
 	l, err := NewLDAPWithFactory(authOpts, logLevel, func(l LDAP) (LDAPClient, error) {
 		ldapClient, err := ldap.DialURL(l.Url)
@@ -42,7 +42,7 @@ func NewLDAP(authOpts map[string]string, logLevel log.Level) (LDAP, error) {
 	return l, err
 }
 
-func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClientFactory LDAPClientFactory) (LDAP, error) {
+func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClientFactory LDAPClientFactory) (*LDAP, error) {
 
 	log.SetLevel(logLevel)
 
@@ -113,16 +113,16 @@ func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClie
 
 	//Exit if any mandatory option is missing.
 	if !ldapOk {
-		return l, errors.Errorf("LDAP backend error: missing options:%s", missingOptions)
+		return &l, errors.Errorf("LDAP backend error: missing options:%s", missingOptions)
 	}
 
 	// Connect to the LDAP server and bind with the provided credentials.
 	err := l.reconnectLDAP()
 
-	return l, err
+	return &l, err
 }
 
-func (l LDAP) reconnectLDAP() error {
+func (l *LDAP) reconnectLDAP() error {
 
 	if l.client != nil {
 		log.Debugf("Reconnecting to LDAP server")
@@ -132,7 +132,7 @@ func (l LDAP) reconnectLDAP() error {
 
 	log.Debugf("Connecting to LDAP server at %s", l.Url)
 
-	ldapClient, err := l.factory(l)
+	ldapClient, err := l.factory(*l)
 
 	if err != nil {
 		log.Errorf("LDAP connection error: %s", err)
@@ -159,7 +159,7 @@ func (l LDAP) reconnectLDAP() error {
 	return nil
 }
 
-func (l LDAP) GetUser(username, password, clientid string) (bool, error) {
+func (l *LDAP) GetUser(username, password, clientid string) (bool, error) {
 
 	searchRequest := ldap.NewSearchRequest(
 		l.UserDN,
@@ -199,7 +199,7 @@ func (l LDAP) GetUser(username, password, clientid string) (bool, error) {
 
 	userDN := searchResult.Entries[0].DN
 
-	userLdapClient, err := l.factory(l)
+	userLdapClient, err := l.factory(*l)
 
 	if err != nil {
 		log.Errorf("LDAP user connection error: %s", err)
@@ -226,7 +226,7 @@ func (l LDAP) GetUser(username, password, clientid string) (bool, error) {
 	return true, nil
 }
 
-func (l LDAP) GetSuperuser(username string) (bool, error) {
+func (l *LDAP) GetSuperuser(username string) (bool, error) {
 
 	//If there's no superuser filter, return false.
 	if l.SuperuserFilter == "" {
@@ -272,7 +272,7 @@ func (l LDAP) GetSuperuser(username string) (bool, error) {
 	return true, nil
 }
 
-func (l LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
+func (l *LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
 
 	attributes := []string{}
 
@@ -370,12 +370,12 @@ func (l LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 }
 
 // GetName returns the backend's name
-func (l LDAP) GetName() string {
+func (l *LDAP) GetName() string {
 	return "LDAP"
 }
 
 // Halt closes the ldap connection.
-func (l LDAP) Halt() {
+func (l *LDAP) Halt() {
 
 	if l.client != nil {
 		err := l.client.Close()
@@ -383,5 +383,7 @@ func (l LDAP) Halt() {
 		if err != nil {
 			log.Errorf("LDAP cleanup error: %s", err)
 		}
+
+		l.client = nil
 	}
 }
