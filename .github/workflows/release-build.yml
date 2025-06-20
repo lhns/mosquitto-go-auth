@@ -4,7 +4,7 @@ on:
   release:
     types: [published]
 env:
-  MOSQUITTO_VERSION: 2.0.15
+  MOSQUITTO_VERSION: 2.0.21
 jobs:
   build:
     runs-on: ubuntu-latest
