@@ -1,7 +1,7 @@
 
 # Define Mosquitto version, see also .github/workflows/build_and_push_docker_images.yml for
 # the automatically built images
-ARG MOSQUITTO_VERSION=1.6.14
+ARG MOSQUITTO_VERSION=1.6.15
 # Define libwebsocket version
 ARG LWS_VERSION=4.2.2
 
