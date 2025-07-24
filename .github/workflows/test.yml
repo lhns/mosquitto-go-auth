@@ -7,7 +7,7 @@ on:
     branches: [ master ]
 env:
   MOSQUITTO_VERSION_1: 1.6.15
-  MOSQUITTO_VERSION_2: 2.0.21
+  MOSQUITTO_VERSION_2: 2.0.22
   DOCKERFILE_MOSQUITTO_VERSION: 1.6.15
   DOCKERHUB_REPO: mosquitto-go-auth
 jobs:
