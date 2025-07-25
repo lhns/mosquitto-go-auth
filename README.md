@@ -1,4 +1,12 @@
-# Forked
+# Mosquitto Go Auth
+
+[![Test](https://github.com/lhns/mosquitto-go-auth/actions/workflows/test.yml/badge.svg)](https://github.com/lhns/mosquitto-go-auth/actions/workflows/test.yml)
+[![CodeQL](https://github.com/lhns/mosquitto-go-auth/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/lhns/mosquitto-go-auth/actions/workflows/codeql-analysis.yml)
+
+Mosquitto Go Auth is an authentication and authorization plugin for the Mosquitto MQTT broker.
+The name is terrible, I know, but it's too late to change it. And, you know: naming, cache invalidation, off-by-one errors and whatnot.
+
+### Project Status
 
 2025-06-08 [iegomez](https://github.com/iegomez): I haven't used this plugin in almost 6 years nor have followed Mosquitto's changes in some time now.
 The plugin works perfectly fine at the moment but that might stop being true in time, so I'm archiving the project to make clear there will be no more changes to it.
@@ -6,12 +14,6 @@ Thanks to everyone that had kinds words and appreciated the project.
 
 2025-06-20 [lhns](https://github.com/lhns): I forked the repository from [iegomez/mosquitto-go-auth](https://github.com/iegomez/mosquitto-go-auth).
 Thank you [iegomez](https://github.com/iegomez) for creating this project and maintaining it over the years.
-
-# Mosquitto Go Auth
-
-Mosquitto Go Auth is an authentication and authorization plugin for the Mosquitto MQTT broker.
-The name is terrible, I know, but it's too late to change it. And, you know: naming, cache invalidation, off-by-one errors and whatnot.
-
 
 ### Intro
 
