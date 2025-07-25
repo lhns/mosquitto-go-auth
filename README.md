@@ -2,6 +2,8 @@
 
 [![Test](https://github.com/lhns/mosquitto-go-auth/actions/workflows/test.yml/badge.svg)](https://github.com/lhns/mosquitto-go-auth/actions/workflows/test.yml)
 [![CodeQL](https://github.com/lhns/mosquitto-go-auth/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/lhns/mosquitto-go-auth/actions/workflows/codeql-analysis.yml)
+[![Release Notes](https://img.shields.io/github/release/lhns/mosquitto-go-auth.svg?maxAge=3600)](https://github.com/lhns/mosquitto-go-auth/releases/latest)
+[![MIT License](https://img.shields.io/github/license/lhns/mosquitto-go-auth.svg?maxAge=3600)](https://opensource.org/license/mit)
 
 Mosquitto Go Auth is an authentication and authorization plugin for the Mosquitto MQTT broker.
 The name is terrible, I know, but it's too late to change it. And, you know: naming, cache invalidation, off-by-one errors and whatnot.
