@@ -1646,9 +1646,9 @@ Only images for x86_64/AMD64 and ARMv7 have been tested. ARMv6 and ARM64 hardwar
 
 #### Prebuilt images
 
-Prebuilt images are provided on Dockerhub under [iegomez/mosquitto-go-auth](https://hub.docker.com/r/iegomez/mosquitto-go-auth).
+Prebuilt images are provided on GitHub under [lhns/mosquitto-go-auth](https://github.com/lhns/mosquitto-go-auth/pkgs/container/mosquitto-go-auth).
 To run the latest image, use the following command and replace `/conf` with the location of your `.conf` files:
-`docker run -it -p 1884:1884 -p 1883:1883 -v /conf:/etc/mosquitto iegomez/mosquitto-go-auth`
+`docker run -it -p 1884:1884 -p 1883:1883 -v /conf:/etc/mosquitto ghcr.io/lhns/mosquitto-go-auth:<tag>`
 
 You should also add the neccesary configuration to your .conf and update the path of the shared object:
 ```auth_plugin /mosquitto/go-auth.so```
@@ -1662,7 +1662,7 @@ This allows building containers for x86_64/AMD64, ARMv6, ARMv7 and ARM64 on a si
 
 
 #### Step-by-step guide:
-* clone this repository: `git clone https://github.com/iegomez/mosquitto-go-auth.git`
+* clone this repository: `git clone https://github.com/lhns/mosquitto-go-auth.git`
 * change into the project folder `cd mosquitto-go-auth`
 * build containers for your desired architectures: `docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 .`
 
