@@ -35,7 +35,7 @@ jobs:
           zip -r linux-armv7.zip linux-armv7
           zip -r linux-armv6.zip linux-armv6
       - name: Release files
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             output/linux-amd64.zip
