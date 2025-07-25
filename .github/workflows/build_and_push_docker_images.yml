@@ -27,12 +27,16 @@ jobs:
       
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      
-      - name: Login to DockerHub
+        
+      - name: Login to GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: ${{ env.GITHUB_TOKEN }}
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Build and push on release
         if: github.event_name == 'release' && github.event.action == 'published'
@@ -41,7 +45,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.event.pull_request.merged == true
@@ -50,7 +54,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
   mosq_2:
     name: Build and publish with Mosquitto version 2.x
     runs-on: ubuntu-latest
@@ -67,11 +71,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
-      - name: Login to DockerHub
+      - name: Login to GitHub Container Registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: ${{ env.GITHUB_TOKEN }}
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Build and push on release
         if: github.event_name == 'release' && github.event.action == 'published'
@@ -80,7 +88,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.event.pull_request.merged == true
@@ -90,5 +98,5 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DOCKERHUB_REPO }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest
