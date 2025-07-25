@@ -5,6 +5,9 @@ on:
     branches: [master]
   release:
     types: [published]
+permissions:
+  packages: write
+  contents: read
 env:
   MOSQUITTO_VERSION_1: 1.6.15
   MOSQUITTO_VERSION_2: 2.0.22
