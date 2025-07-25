@@ -2,7 +2,7 @@
 # the automatically built images
 ARG MOSQUITTO_VERSION=2.0.22
 # Define libwebsocket version
-ARG LWS_VERSION=4.2.2
+ARG LWS_VERSION=4.4.1
 
 # Use debian:stable-slim as a builder for Mosquitto and dependencies.
 FROM debian:stable-slim as mosquitto_builder
