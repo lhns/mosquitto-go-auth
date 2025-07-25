@@ -1,8 +1,11 @@
-# Archived
+# Forked
 
-08/06/2025: I haven't used this plugin in almost 6 years nor have followed Mosquitto's changes in some time now.
+2025-06-08 [iegomez](https://github.com/iegomez): I haven't used this plugin in almost 6 years nor have followed Mosquitto's changes in some time now.
 The plugin works perfectly fine at the moment but that might stop being true in time, so I'm archiving the project to make clear there will be no more changes to it.
 Thanks to everyone that had kinds words and appreciated the project.
+
+2025-06-20 [lhns](https://github.com/lhns): I forked the repository from [iegomez/mosquitto-go-auth](https://github.com/iegomez/mosquitto-go-auth).
+Thank you [iegomez](https://github.com/iegomez) for creating this project and maintaining it over the years.
 
 # Mosquitto Go Auth
 
