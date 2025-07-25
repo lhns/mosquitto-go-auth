@@ -230,7 +230,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[ldapBackend] = beIface.(LDAP)
+				b.backends[ldapBackend] = beIface.(*LDAP)
 			}
 		case pluginBackend:
 			beIface, err = NewCustomPlugin(authOpts, logLevel)
