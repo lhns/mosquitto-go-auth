@@ -6,7 +6,7 @@ ARG MOSQUITTO_VERSION=1.6.15
 ARG LWS_VERSION=4.4.1
 
 # Use debian:bookworm-slim as a builder for Mosquitto and dependencies.
-FROM debian:bookworm-slim as mosquitto_builder
+FROM debian:bookworm-slim AS mosquitto_builder
 ARG MOSQUITTO_VERSION
 ARG LWS_VERSION
 
@@ -17,7 +17,7 @@ ENV MOSQUITTO_GO_AUTH_TEST_RUNNING_IN_A_CONTAINER=true
 
 WORKDIR /app
 
-#Get mosquitto build dependencies.
+# Get mosquitto build dependencies.
 RUN apt-get update && apt-get install -y libc-ares2 libc-ares-dev cmake libssl-dev uuid uuid-dev wget build-essential git libcjson-dev gnupg lsb-release
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
@@ -55,14 +55,14 @@ RUN set -ex; \
     make install; \
     cd ..;
 
-#Get Go.
+# Get Go.
 RUN wget https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz
 RUN export PATH=$PATH:/usr/local/go/bin && go version && rm go${GO_VERSION}.linux-amd64.tar.gz
 
-#Build the plugin from local source
+# Build the plugin from local source
 COPY ./ ./
 
-#Build the plugin.
+# Build the plugin.
 RUN export PATH=$PATH:/usr/local/go/bin && export CGO_CFLAGS="-I/usr/local/include -fPIC" && export CGO_LDFLAGS="-shared" &&  make
 
 ## Everything above, is the same as Dockerfile
@@ -77,7 +77,7 @@ RUN wget -qO - https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/s
     apt-get install -y mongodb-org && \
     rm -f /usr/bin/systemctl
 
-#Install redis 6.2
+# Install redis 6.2
 RUN wget -qO - https://packages.redis.io/gpg | gpg --dearmor -o /usr/share/keyrings/redis-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/redis.list && \
     apt-get update && \

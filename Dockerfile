@@ -5,7 +5,7 @@ ARG MOSQUITTO_VERSION=2.0.22
 ARG LWS_VERSION=4.4.1
 
 # Use debian:bookworm-slim as a builder for Mosquitto and dependencies.
-FROM debian:bookworm-slim as mosquitto_builder
+FROM debian:bookworm-slim AS mosquitto_builder
 ARG MOSQUITTO_VERSION
 ARG LWS_VERSION
 
@@ -71,13 +71,13 @@ RUN set -ex; \
   if [ ! -z "$TARGETPLATFORM" ]; then \
     case "$TARGETPLATFORM" in \
   "linux/arm64") \
-    apt update && apt install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+    apt update && apt install -y binutils gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
     ;; \
   "linux/arm/v7") \
-    apt update && apt install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
     ;; \
   "linux/arm/v6") \
-    apt update && apt install -y gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross \
+    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross \
     ;; \
   esac \
   fi
@@ -91,8 +91,8 @@ RUN set -ex; \
     go build -buildmode=c-shared -o go-auth.so; \
 	  go build pw-gen/pw.go
 
-#Start from a new image.
-FROM debian:stable-slim
+# Start from a new image.
+FROM debian:bookworm-slim
 
 RUN set -ex; \
     apt update; \
@@ -105,7 +105,7 @@ RUN set -ex; \
     chown -R mosquitto:mosquitto /var/log/mosquitto/; \
     chown -R mosquitto:mosquitto /var/lib/mosquitto/
 
-#Copy confs, plugin so and mosquitto binary.
+# Copy confs, plugin so and mosquitto binary.
 COPY --from=mosquitto_builder /app/mosquitto/ /mosquitto/
 COPY --from=go_auth_builder /app/pw /mosquitto/pw
 COPY --from=go_auth_builder /app/go-auth.so /mosquitto/go-auth.so
