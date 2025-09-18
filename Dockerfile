@@ -86,6 +86,7 @@ WORKDIR /app
 COPY --from=mosquitto_builder /usr/local/include/ /usr/local/include/
 
 COPY ./ ./
+RUN type ld
 RUN set -ex; \
     go build -buildmode=c-archive go-auth.go; \
     go build -buildmode=c-shared -o go-auth.so; \
