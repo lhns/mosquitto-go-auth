@@ -2,7 +2,7 @@ name: Build docker images and publish to DockerHub
 
 on:
   push:
-    branches: [master]
+    branches: ['**']
   release:
     types: [published]
 env:
@@ -51,7 +51,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
       
       - name: Build and push on push
-        if: github.event_name == 'push' && github.event.pull_request.merged == true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -60,7 +60,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
       
       - name: Build on push
-        if: github.event_name == 'push' && github.event.pull_request.merged != true
+        if: github.event_name == 'push' && github.ref != 'refs/heads/master'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -105,7 +105,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
       
       - name: Build and push on push
-        if: github.event_name == 'push' && github.event.pull_request.merged == true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -116,7 +116,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest
       
       - name: Build on push
-        if: github.event_name == 'push' && github.event.pull_request.merged != true
+        if: github.event_name == 'push' && github.ref != 'refs/heads/master'
         uses: docker/build-push-action@v6
         with:
           context: .
