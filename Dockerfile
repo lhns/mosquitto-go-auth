@@ -54,7 +54,7 @@ RUN set -ex; \
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
 
 # Use golang:latest as a builder for the Mosquitto Go Auth plugin.
-FROM --platform=$BUILDPLATFORM golang:1.15-bookworm AS go_auth_builder
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS go_auth_builder
 
 ENV CGO_CFLAGS="-I/usr/local/include -fPIC"
 ENV CGO_LDFLAGS="-shared -Wl,-unresolved-symbols=ignore-all"
