@@ -11,12 +11,14 @@ all:
 	@echo "Bulding for $(UNAME_S)"
 	env CGO_CFLAGS="$(CFLAGS)" go build -buildmode=c-archive go-auth.go
 	env CGO_LDFLAGS="$(LDFLAGS)" go build -buildmode=c-shared -o go-auth.so
+	env GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc CGO_CFLAGS="$(CFLAGS)" CGO_LDFLAGS="$(LDFLAGS)" CGO_ENABLED=1 go build -buildmode=c-shared -o go-auth-arm64.so
 	go build pw-gen/pw.go
 
 without-vcs:
 	@echo "Bulding for $(UNAME_S)"
 	env CGO_CFLAGS="$(CFLAGS)" go build -buildvcs=false -buildmode=c-archive go-auth.go
 	env CGO_LDFLAGS="$(LDFLAGS)" go build -buildvcs=false -buildmode=c-shared -o go-auth.so
+	env GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc CGO_CFLAGS="$(CFLAGS)" CGO_LDFLAGS="$(LDFLAGS)" CGO_ENABLED=1 go build -buildvcs=false -buildmode=c-shared -o go-auth-arm64.so
 	go build -buildvcs=false pw-gen/pw.go
 
 test:
@@ -48,4 +50,5 @@ service:
 clean:
 	rm -f go-auth.h
 	rm -f go-auth.so
+	rm -f go-auth-arm64.so
 	rm -f pw
