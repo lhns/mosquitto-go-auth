@@ -51,7 +51,7 @@ RUN set -ex; \
     make CFLAGS="-Wall -O2 -I/build/lws/include" LDFLAGS="-L/build/lws/lib" WITH_WEBSOCKETS=yes; \
     make install;
 
-FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.7.0 AS xx
+FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.8.0 AS xx
 
 # Use golang:latest as a builder for the Mosquitto Go Auth plugin.
 FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS go_auth_builder
