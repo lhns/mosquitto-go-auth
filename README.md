@@ -114,7 +114,7 @@ Before building, you need to build `mosquitto`. For completeness, we'll build it
 
 First, install dependencies (tested on Debian 9 and later, Linux Mint 18, 19 and 20):
 
-`sudo apt-get install libwebsockets8 libwebsockets-dev libc-ares2 libc-ares-dev openssl uuid uuid-dev`
+`sudo apt-get install libwebsockets8 libwebsockets-dev libc-ares2 libc-ares-dev openssl uuid uuid-dev gcc-aarch64-linux-gnu`
 
 Newer Mosquitto versions also depend on `cJson` for their dynamic-security plugin, so you should either install the deps or compile Mosquitto without it by changing `WITCH_CJSON` var at `config.mk` when building:
 ```
