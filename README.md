@@ -1244,6 +1244,7 @@ Finally, options for Redis are the following:
 | auth_opt_redis_host               | localhost |     N     | IP address,will skip dns lookup      |
 | auth_opt_redis_port               | 6379      |     N     | TCP port number                      |
 | auth_opt_redis_db                 | 2         |     N     | Redis DB number                      |
+| auth_opt_redis_username           |           |     N     | Redis DB (>= v6.0) ACL username      |
 | auth_opt_redis_password           |           |     N     | Redis DB password                    |
 | auth_opt_redis_disable_superuser  | true      |     N     | Disable query to check for superuser |
 | auth_opt_redis_mode               |           |     N     | See `Cluster` section below          |

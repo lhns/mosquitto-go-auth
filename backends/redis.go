@@ -38,6 +38,7 @@ type Redis struct {
 	Host             string
 	Port             string
 	Password         string
+	Username         string
 	SaltEncoding     string
 	DB               int32
 	conn             RedisClient
@@ -71,8 +72,16 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		redis.Port = redisPort
 	}
 
-	if redisPassword, ok := authOpts["redis_password"]; ok {
+	usernameSet := false
+	if redisUsername, ok := authOpts["redis_username"]; ok && redisUsername != "" {
+		redis.Username = redisUsername
+		usernameSet = true
+	}
+
+	passwordSet := false
+	if redisPassword, ok := authOpts["redis_password"]; ok && redisPassword != "" {
 		redis.Password = redisPassword
+		passwordSet = true
 	}
 
 	if redisDB, ok := authOpts["redis_db"]; ok {
@@ -98,6 +107,7 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		clusterClient := goredis.NewClusterClient(
 			&goredis.ClusterOptions{
 				Addrs:    addresses,
+				Username: redis.Username,
 				Password: redis.Password,
 			})
 		redis.conn = clusterClient
@@ -106,6 +116,7 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 
 		redisClient := goredis.NewClient(&goredis.Options{
 			Addr:     addr,
+			Username: redis.Username,
 			Password: redis.Password,
 			DB:       int(redis.DB),
 		})
@@ -117,6 +128,14 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			log.Errorf("ping redis error, will retry in 2s: %s", err)
 			time.Sleep(2 * time.Second)
 		} else {
+			switch {
+			case usernameSet && passwordSet:
+				log.Infof("redis connected successfully using ACL (username %s)", redis.Username)
+			case passwordSet:
+				log.Info("redis connected successfully using requirepass directive")
+			default:
+				log.Info("redis connected successfully")
+			}
 			break
 		}
 	}
@@ -135,7 +154,7 @@ func isMovedError(err error) bool {
 	return false
 }
 
-//GetUser checks that the username exists and the given password hashes to the same password.
+// GetUser checks that the username exists and the given password hashes to the same password.
 func (o Redis) GetUser(username, password, _ string) (bool, error) {
 	ok, err := o.getUser(username, password)
 	if err == nil {
@@ -171,7 +190,7 @@ func (o Redis) getUser(username, password string) (bool, error) {
 	return false, nil
 }
 
-//GetSuperuser checks that the key username:su exists and has value "true".
+// GetSuperuser checks that the key username:su exists and has value "true".
 func (o Redis) GetSuperuser(username string) (bool, error) {
 	if o.disableSuperuser {
 		return false, nil
@@ -232,7 +251,7 @@ func (o Redis) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	return ok, err
 }
 
-//CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
+// CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
 func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, error) {
 
 	var acls []string       //User specific acls.
@@ -350,12 +369,12 @@ func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, erro
 	return false, nil
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o Redis) GetName() string {
 	return "Redis"
 }
 
-//Halt terminates the connection.
+// Halt terminates the connection.
 func (o Redis) Halt() {
 	if o.conn != nil {
 		err := o.conn.Close()
