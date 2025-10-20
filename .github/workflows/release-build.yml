@@ -1,6 +1,8 @@
 name: Build Linux Binaries
 
 on:
+  push:
+    branches: ['**']
   release:
     types: [published]
 env:
@@ -35,6 +37,7 @@ jobs:
           zip -r linux-armv7.zip linux-armv7
           zip -r linux-armv6.zip linux-armv6
       - name: Release files
+        if: github.event_name == 'release' && github.event.action == 'published'
         uses: softprops/action-gh-release@v2
         with:
           files: |
