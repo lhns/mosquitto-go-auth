@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	goredis "github.com/go-redis/redis/v8"
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
+	goredis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,8 +33,8 @@ type SingleRedisClient struct {
 	*goredis.Client
 }
 
-func (c SingleRedisClient) ReloadState(ctx context.Context) {
-	// NO-OP
+func (c *SingleRedisClient) ReloadState(ctx context.Context) {
+	// NO-OP for single node clients
 }
 
 type Redis struct {
@@ -167,7 +167,7 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		if tlsEnabled {
 			redisClient.Options().TLSConfig = singleTLSConfig
 		}
-		redis.conn = &SingleRedisClient{redisClient}
+		redis.conn = &SingleRedisClient{Client: redisClient}
 	}
 
 	for {
