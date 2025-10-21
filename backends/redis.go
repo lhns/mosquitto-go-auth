@@ -2,7 +2,10 @@ package backends
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +42,7 @@ type Redis struct {
 	Port             string
 	Password         string
 	Username         string
+	UseTLS           bool
 	SaltEncoding     string
 	DB               int32
 	conn             RedisClient
@@ -84,10 +88,38 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		passwordSet = true
 	}
 
+	if strings.EqualFold(strings.TrimSpace(authOpts["redis_tls"]), "true") {
+		redis.UseTLS = true
+		log.Info("redis TLS option enabled")
+	}
+	tlsEnabled := redis.UseTLS
+
 	if redisDB, ok := authOpts["redis_db"]; ok {
 		db, err := strconv.ParseInt(redisDB, 10, 32)
 		if err == nil {
 			redis.DB = int32(db)
+		}
+	}
+
+	var singleTLSConfig *tls.Config
+	var clusterTLSConfig *tls.Config
+	if tlsEnabled {
+		// Load system CA root certificate pool
+		systemCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			log.Fatalf("failed to load system cert pool: %v", err)
+		}
+		singleTLSConfig = &tls.Config{
+			InsecureSkipVerify: false,
+			RootCAs:            systemCertPool,
+		}
+		if redis.Host != "" {
+			singleTLSConfig.ServerName = redis.Host
+		}
+
+		clusterTLSConfig = &tls.Config{
+			InsecureSkipVerify: false,
+			RootCAs:            systemCertPool,
 		}
 	}
 
@@ -104,12 +136,24 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			addresses[i] = strings.TrimSpace(addresses[i])
 		}
 
+		if clusterTLSConfig != nil && len(addresses) > 0 {
+			host, _, err := net.SplitHostPort(addresses[0])
+			if err != nil {
+				host = addresses[0]
+			}
+			// Remove port number from host address
+			clusterTLSConfig.ServerName = host
+		}
+
 		clusterClient := goredis.NewClusterClient(
 			&goredis.ClusterOptions{
 				Addrs:    addresses,
 				Username: redis.Username,
 				Password: redis.Password,
 			})
+		if tlsEnabled {
+			clusterClient.Options().TLSConfig = clusterTLSConfig
+		}
 		redis.conn = clusterClient
 	} else {
 		addr := fmt.Sprintf("%s:%s", redis.Host, redis.Port)
@@ -120,6 +164,9 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			Password: redis.Password,
 			DB:       int(redis.DB),
 		})
+		if tlsEnabled {
+			redisClient.Options().TLSConfig = singleTLSConfig
+		}
 		redis.conn = &SingleRedisClient{redisClient}
 	}
 

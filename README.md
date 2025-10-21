@@ -1246,9 +1246,12 @@ Finally, options for Redis are the following:
 | auth_opt_redis_db                 | 2         |     N     | Redis DB number                      |
 | auth_opt_redis_username           |           |     N     | Redis DB (>= v6.0) ACL username      |
 | auth_opt_redis_password           |           |     N     | Redis DB password                    |
+| auth_opt_redis_tls                | false     |     N     | Enable TLS connection to Redis       |
 | auth_opt_redis_disable_superuser  | true      |     N     | Disable query to check for superuser |
 | auth_opt_redis_mode               |           |     N     | See `Cluster` section below          |
 | auth_opt_redis_cluster_addresses  |           |     N     | See `Cluster` section below          |
+
+When `auth_opt_redis_tls` is set to `true`, the plugin negotiates TLS when contacting Redis. Ensure the Redis certificate is trusted by the host running mosquitto-go-auth.
 
 
 #### Cluster
