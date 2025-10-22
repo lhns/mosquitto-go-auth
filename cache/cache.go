@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	goredis "github.com/go-redis/redis/v8"
 	bes "github.com/iegomez/mosquitto-go-auth/backends"
 	"github.com/jellydator/ttlcache/v3"
+	goredis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -86,7 +86,7 @@ func NewSingleRedisStore(host, port, password string, db int, authExpiration, ac
 		authJitter:        authJitter,
 		aclJitter:         aclJitter,
 		refreshExpiration: refreshExpiration,
-		client:            bes.SingleRedisClient{redisClient},
+		client:            &bes.SingleRedisClient{Client: redisClient},
 		h:                 sha1.New(),
 	}
 }
