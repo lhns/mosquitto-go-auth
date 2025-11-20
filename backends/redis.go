@@ -2,15 +2,18 @@ package backends
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
 
-	goredis "github.com/go-redis/redis/v8"
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
+	goredis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,14 +33,16 @@ type SingleRedisClient struct {
 	*goredis.Client
 }
 
-func (c SingleRedisClient) ReloadState(ctx context.Context) {
-	// NO-OP
+func (c *SingleRedisClient) ReloadState(ctx context.Context) {
+	// NO-OP for single node clients
 }
 
 type Redis struct {
 	Host             string
 	Port             string
 	Password         string
+	Username         string
+	UseTLS           bool
 	SaltEncoding     string
 	DB               int32
 	conn             RedisClient
@@ -71,14 +76,50 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		redis.Port = redisPort
 	}
 
-	if redisPassword, ok := authOpts["redis_password"]; ok {
-		redis.Password = redisPassword
+	usernameSet := false
+	if redisUsername, ok := authOpts["redis_username"]; ok && redisUsername != "" {
+		redis.Username = redisUsername
+		usernameSet = true
 	}
+
+	passwordSet := false
+	if redisPassword, ok := authOpts["redis_password"]; ok && redisPassword != "" {
+		redis.Password = redisPassword
+		passwordSet = true
+	}
+
+	if strings.EqualFold(strings.TrimSpace(authOpts["redis_tls"]), "true") {
+		redis.UseTLS = true
+		log.Info("redis TLS option enabled")
+	}
+	tlsEnabled := redis.UseTLS
 
 	if redisDB, ok := authOpts["redis_db"]; ok {
 		db, err := strconv.ParseInt(redisDB, 10, 32)
 		if err == nil {
 			redis.DB = int32(db)
+		}
+	}
+
+	var singleTLSConfig *tls.Config
+	var clusterTLSConfig *tls.Config
+	if tlsEnabled {
+		// Load system CA root certificate pool
+		systemCertPool, err := x509.SystemCertPool()
+		if err != nil {
+			log.Fatalf("failed to load system cert pool: %v", err)
+		}
+		singleTLSConfig = &tls.Config{
+			InsecureSkipVerify: false,
+			RootCAs:            systemCertPool,
+		}
+		if redis.Host != "" {
+			singleTLSConfig.ServerName = redis.Host
+		}
+
+		clusterTLSConfig = &tls.Config{
+			InsecureSkipVerify: false,
+			RootCAs:            systemCertPool,
 		}
 	}
 
@@ -95,21 +136,38 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			addresses[i] = strings.TrimSpace(addresses[i])
 		}
 
+		if clusterTLSConfig != nil && len(addresses) > 0 {
+			host, _, err := net.SplitHostPort(addresses[0])
+			if err != nil {
+				host = addresses[0]
+			}
+			// Remove port number from host address
+			clusterTLSConfig.ServerName = host
+		}
+
 		clusterClient := goredis.NewClusterClient(
 			&goredis.ClusterOptions{
 				Addrs:    addresses,
+				Username: redis.Username,
 				Password: redis.Password,
 			})
+		if tlsEnabled {
+			clusterClient.Options().TLSConfig = clusterTLSConfig
+		}
 		redis.conn = clusterClient
 	} else {
 		addr := fmt.Sprintf("%s:%s", redis.Host, redis.Port)
 
 		redisClient := goredis.NewClient(&goredis.Options{
 			Addr:     addr,
+			Username: redis.Username,
 			Password: redis.Password,
 			DB:       int(redis.DB),
 		})
-		redis.conn = &SingleRedisClient{redisClient}
+		if tlsEnabled {
+			redisClient.Options().TLSConfig = singleTLSConfig
+		}
+		redis.conn = &SingleRedisClient{Client: redisClient}
 	}
 
 	for {
@@ -117,6 +175,14 @@ func NewRedis(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			log.Errorf("ping redis error, will retry in 2s: %s", err)
 			time.Sleep(2 * time.Second)
 		} else {
+			switch {
+			case usernameSet && passwordSet:
+				log.Infof("redis connected successfully using ACL (username %s)", redis.Username)
+			case passwordSet:
+				log.Info("redis connected successfully using requirepass directive")
+			default:
+				log.Info("redis connected successfully")
+			}
 			break
 		}
 	}
@@ -135,7 +201,7 @@ func isMovedError(err error) bool {
 	return false
 }
 
-//GetUser checks that the username exists and the given password hashes to the same password.
+// GetUser checks that the username exists and the given password hashes to the same password.
 func (o Redis) GetUser(username, password, _ string) (bool, error) {
 	ok, err := o.getUser(username, password)
 	if err == nil {
@@ -171,7 +237,7 @@ func (o Redis) getUser(username, password string) (bool, error) {
 	return false, nil
 }
 
-//GetSuperuser checks that the key username:su exists and has value "true".
+// GetSuperuser checks that the key username:su exists and has value "true".
 func (o Redis) GetSuperuser(username string) (bool, error) {
 	if o.disableSuperuser {
 		return false, nil
@@ -232,7 +298,7 @@ func (o Redis) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	return ok, err
 }
 
-//CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
+// CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
 func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, error) {
 
 	var acls []string       //User specific acls.
@@ -350,12 +416,12 @@ func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, erro
 	return false, nil
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o Redis) GetName() string {
 	return "Redis"
 }
 
-//Halt terminates the connection.
+// Halt terminates the connection.
 func (o Redis) Halt() {
 	if o.conn != nil {
 		err := o.conn.Close()
