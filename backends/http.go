@@ -9,6 +9,7 @@ import (
 	h "net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -16,19 +17,20 @@ import (
 )
 
 type HTTP struct {
-	UserUri      string
-	SuperuserUri string
-	AclUri       string
-	UserAgent    string
-	Host         string
-	Port         string
-	WithTLS      bool
-	VerifyPeer   bool
-	ParamsMode   string
-	httpMethod   string
-	ResponseMode string
-	Timeout      int
-	Client       *h.Client
+	UserUri       string
+	SuperuserUri  string
+	AclUri        string
+	UserAgent     string
+	Host          string
+	Port          string
+	WithTLS       bool
+	VerifyPeer    bool
+	ParamsMode    string
+	httpMethod    string
+	ResponseMode  string
+	Timeout       int
+	Client        *h.Client
+	CustomHeaders map[string]string
 }
 
 type HTTPResponse struct {
@@ -42,11 +44,12 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 
 	//Initialize with defaults
 	var http = HTTP{
-		WithTLS:      false,
-		VerifyPeer:   false,
-		ResponseMode: "status",
-		ParamsMode:   "json",
-		httpMethod:   h.MethodPost,
+		WithTLS:       false,
+		VerifyPeer:    false,
+		ResponseMode:  "status",
+		ParamsMode:    "json",
+		httpMethod:    h.MethodPost,
+		CustomHeaders: map[string]string{},
 	}
 
 	missingOpts := ""
@@ -125,6 +128,20 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		}
 	}
 
+	for key, value := range authOpts {
+		if strings.HasPrefix(key, "http_header_") && value != "" {
+			headerName := strings.TrimPrefix(key, "http_header_")
+			if headerName == "" {
+				continue
+			}
+			http.CustomHeaders[headerName] = value
+		}
+	}
+
+	if len(http.CustomHeaders) == 0 {
+		http.CustomHeaders = nil
+	}
+
 	if !httpOk {
 		return http, errors.Errorf("HTTP backend error: missing remote options: %s", missingOpts)
 	}
@@ -197,7 +214,7 @@ func (o HTTP) CheckAcl(username, topic, clientid string, acc int32) (bool, error
 
 }
 
-func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, urlValues map[string][]string) (bool, error) {
+func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, urlValues url.Values) (bool, error) {
 
 	// Don't do the request if the client is nil.
 	if o.Client == nil {
@@ -217,6 +234,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 	var resp *h.Response
 	var err error
+	var req *h.Request
 
 	if o.ParamsMode == "form" {
 		if o.httpMethod != h.MethodPost && o.httpMethod != h.MethodPut {
@@ -225,7 +243,15 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 			return false, err
 		}
 
-		resp, err = o.Client.PostForm(fullUri, urlValues)
+		formEncoded := urlValues.Encode()
+		req, err = h.NewRequest(o.httpMethod, fullUri, strings.NewReader(formEncoded))
+
+		if err != nil {
+			log.Errorf("req error: %s", err)
+			return false, err
+		}
+
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
 		var dataJson []byte
 		dataJson, err = json.Marshal(dataMap)
@@ -235,9 +261,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 			return false, err
 		}
 
-		contentReader := bytes.NewReader(dataJson)
-		var req *h.Request
-		req, err = h.NewRequest(o.httpMethod, fullUri, contentReader)
+		req, err = h.NewRequest(o.httpMethod, fullUri, bytes.NewReader(dataJson))
 
 		if err != nil {
 			log.Errorf("req error: %s", err)
@@ -245,10 +269,15 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", o.UserAgent)
-
-		resp, err = o.Client.Do(req)
 	}
+
+	req.Header.Set("User-Agent", o.UserAgent)
+
+	for header, value := range o.CustomHeaders {
+		req.Header.Set(header, value)
+	}
+
+	resp, err = o.Client.Do(req)
 
 	if err != nil {
 		log.Errorf("http request error: %s", err)
@@ -303,12 +332,12 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o HTTP) GetName() string {
 	return "HTTP"
 }
 
-//Halt does nothing for http as there's no cleanup needed.
+// Halt does nothing for http as there's no cleanup needed.
 func (o HTTP) Halt() {
 	//Do nothing
 }

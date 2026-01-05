@@ -1174,6 +1174,7 @@ The following options are supported:
 | auth_opt_http_timeout       | 5         |     N     | Timeout in seconds                 |
 | auth_opt_http_user_agent    | mosquitto |     N     | User Agent to use in requests      |
 | auth_opt_http_method        | POST      |     N     | Http method used (POST, GET, PUT)  |
+| auth_opt_http_header_<name> |           |     N     | Extra header forwarded to backend  |
 
 #### Response mode
 
@@ -1218,6 +1219,19 @@ For ACL check:
 ```
 
 When set to `form`, it will send params like a regular html form post.
+
+#### Custom headers
+
+Add any number of static headers to outbound requests by defining options that follow the pattern `auth_opt_http_header_<Header-Name>`.
+Everything after the prefix becomes the header key, so setting
+
+```
+auth_opt_http_header_X-Api-Key super-secret
+auth_opt_http_header_X-Request-Source mosquitto-go-auth
+```
+
+will inject both headers on every HTTP call. Header names keep their original casing, and empty values are ignored.
+Use this to supply API keys or routing metadata when the target service requires them.
 
 #### Testing HTTP
 

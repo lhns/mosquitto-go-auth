@@ -104,6 +104,7 @@ func TestHTTPAllJsonServer(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(hb.UserAgent, ShouldEqual, "mosquitto-2.0.0")
 		So(hb.httpMethod, ShouldEqual, http.MethodPost)
+		So(hb.CustomHeaders, ShouldBeNil)
 
 		Convey("Given custom user agent, it should override default one", func() {
 			customAuthOpts := make(map[string]string)
@@ -220,6 +221,86 @@ func TestHTTPAllJsonServer(t *testing.T) {
 
 		hb.Halt()
 
+	})
+
+}
+
+func TestHTTPCustomHeaders(t *testing.T) {
+
+	version := "2.0.0"
+	const headerName = "X-Api-Key"
+	const headerValue = "super-secret"
+
+	buildAuthOpts := func(serverURL string) map[string]string {
+		opts := make(map[string]string)
+		opts["http_params_mode"] = "json"
+		opts["http_response_mode"] = "text"
+		opts["http_host"] = strings.Replace(serverURL, "http://", "", -1)
+		opts["http_port"] = ""
+		opts["http_getuser_uri"] = "/user"
+		opts["http_superuser_uri"] = "/superuser"
+		opts["http_aclcheck_uri"] = "/acl"
+		opts["http_timeout"] = "5"
+		return opts
+	}
+
+	Convey("HTTP backend should send configured custom headers", t, func() {
+		Convey("when using JSON payloads", func() {
+			receivedHeaders := make(chan http.Header, 2)
+			mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders <- r.Header.Clone()
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("ok"))
+			}))
+			defer mockServer.Close()
+
+			authOpts := buildAuthOpts(mockServer.URL)
+			authOpts["http_header_"+headerName] = headerValue
+
+			hb, err := NewHTTP(authOpts, log.DebugLevel, version)
+			So(err, ShouldBeNil)
+			So(hb.CustomHeaders, ShouldNotBeNil)
+			So(hb.CustomHeaders[headerName], ShouldEqual, headerValue)
+
+			authenticated, err := hb.GetUser("user", "pass", "cid")
+			So(err, ShouldBeNil)
+			So(authenticated, ShouldBeTrue)
+
+			headers := <-receivedHeaders
+			So(headers.Get(headerName), ShouldEqual, headerValue)
+			So(headers.Get("User-Agent"), ShouldEqual, hb.UserAgent)
+
+			hb.Halt()
+		})
+
+		Convey("when using form payloads", func() {
+			receivedHeaders := make(chan http.Header, 2)
+			mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders <- r.Header.Clone()
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("ok"))
+			}))
+			defer mockServer.Close()
+
+			authOpts := buildAuthOpts(mockServer.URL)
+			authOpts["http_params_mode"] = "form"
+			authOpts["http_header_"+headerName] = headerValue
+
+			hb, err := NewHTTP(authOpts, log.DebugLevel, version)
+			So(err, ShouldBeNil)
+			So(hb.CustomHeaders, ShouldNotBeNil)
+			So(hb.CustomHeaders[headerName], ShouldEqual, headerValue)
+
+			authenticated, err := hb.GetUser("user", "pass", "cid")
+			So(err, ShouldBeNil)
+			So(authenticated, ShouldBeTrue)
+
+			headers := <-receivedHeaders
+			So(headers.Get(headerName), ShouldEqual, headerValue)
+			So(headers.Get("User-Agent"), ShouldEqual, hb.UserAgent)
+
+			hb.Halt()
+		})
 	})
 
 }
