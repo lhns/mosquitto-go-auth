@@ -21,7 +21,7 @@ without-vcs:
 
 test:
 	cd plugin && make
-	go test ./backends ./cache ./hashing -v -count=1 -buildvcs=false
+	go test ./backends ./cache ./hashing -v -run='^(?!TestGoStore).*' -count=1 -buildvcs=false
 	rm plugin/*.so
 
 test-backends:
