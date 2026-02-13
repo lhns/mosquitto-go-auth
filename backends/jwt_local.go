@@ -34,7 +34,7 @@ func NewLocalJWTChecker(authOpts map[string]string, logLevel log.Level, hasher h
 	missingOpts := ""
 	localOk := true
 
-	if options.secret == "" {
+	if len(options.secret) == 0 {
 		return nil, errors.New("JWT backend error: missing jwt secret")
 	}
 

@@ -2,6 +2,7 @@ package backends
 
 import (
 	"fmt"
+	"os"
 
 	jwtGo "github.com/golang-jwt/jwt"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -19,7 +20,7 @@ type tokenOptions struct {
 	parseToken         bool
 	skipUserExpiration bool
 	skipACLExpiration  bool
-	secret             string
+	secret             []byte
 	userFieldKey       string
 }
 
@@ -62,8 +63,14 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		options.skipACLExpiration = true
 	}
 
-	if secret, ok := authOpts["jwt_secret"]; ok {
-		options.secret = secret
+	if secret_file, ok := authOpts["jwt_secret_file"]; ok {
+		secretBytes, err := os.ReadFile(secret_file)
+		if err != nil {
+			return nil, fmt.Errorf("error reading JWT secret file: %w", err)
+		}
+		options.secret = secretBytes
+	} else if secret, ok := authOpts["jwt_secret"]; ok {
+		options.secret = []byte(secret)
 	}
 
 	if userField, ok := authOpts["jwt_userfield"]; ok && userField == "Username" {
@@ -125,7 +132,7 @@ func (o *JWT) Halt() {
 	o.checker.Halt()
 }
 
-func getJWTClaims(secret string, tokenStr string, skipExpiration bool) (*jwtGo.MapClaims, error) {
+func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.MapClaims, error) {
 
 	jwtToken, err := jwtGo.ParseWithClaims(tokenStr, &jwtGo.MapClaims{}, func(token *jwtGo.Token) (interface{}, error) {
 		return []byte(secret), nil

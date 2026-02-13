@@ -891,15 +891,16 @@ There are no requirements, as the tests create (and later delete) the DB and tab
 
 The `jwt` backend is for auth with a JWT remote API, a local DB, a JavaScript VM interpreter or an ACL file. Global otions for JWT are:
 
-| Option                            | default   | Mandatory | Meaning                                                 |
-| --------------------------------- | --------- | :-------: | ------------------------------------------------------- |
-| auth_opt_jwt_mode                 |           |     Y     | local, remote, js, files                                |
-| auth_opt_jwt_parse_token          |   false   |     N     | Parse token in remote/js modes                          |
-| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local mode, optional otherwise |
-| auth_opt_jwt_userfield            |           |     N     | When `Username`, expect `username` as part of claims    |
-| auth_opt_jwt_skip_user_expiration |   false   |     N     | Skip token expiration in user/superuser checks          |
-| auth_opt_jwt_skip_acl_expiration  |   false   |     N     | Skip token expiration in ACL checks                     |
-| auth_opt_jwt_user_agent           | mosquitto |     N     | User agent for requests                                 |
+| Option                            | default   | Mandatory | Meaning                                                                                      |
+| --------------------------------- | --------- | :-------: | ---------------------------------------------------------------------------------------------|
+| auth_opt_jwt_mode                 |           |     Y     | local, remote, js, files                                                                     |
+| auth_opt_jwt_parse_token          |   false   |     N     | Parse token in remote/js modes                                                               |
+| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local mode or when parse_token is true (unless secret_file is used) |
+| auth_opt_jwt_secret_file          |           |    Y/N    | Path to file containing JWT secret (alternative to jwt_secret)                               |
+| auth_opt_jwt_userfield            |           |     N     | When `Username`, expect `username` as part of claims                                         |
+| auth_opt_jwt_skip_user_expiration |   false   |     N     | Skip token expiration in user/superuser checks                                               |
+| auth_opt_jwt_skip_acl_expiration  |   false   |     N     | Skip token expiration in ACL checks                                                          |
+| auth_opt_jwt_user_agent           | mosquitto |     N     | User agent for requests                                                                      |
 
 #### Remote mode
 
