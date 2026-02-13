@@ -1,10 +1,11 @@
 package backends
 
 import (
+	"crypto"
 	"fmt"
 	"os"
 
-	jwtGo "github.com/golang-jwt/jwt"
+	jwtGo "github.com/golang-jwt/jwt/v5"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -135,7 +136,25 @@ func (o *JWT) Halt() {
 func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.MapClaims, error) {
 
 	jwtToken, err := jwtGo.ParseWithClaims(tokenStr, &jwtGo.MapClaims{}, func(token *jwtGo.Token) (interface{}, error) {
-		return []byte(secret), nil
+		var ret crypto.PublicKey
+		var err error
+
+		switch token.Method.Alg() {
+		case jwtGo.SigningMethodHS256.Alg(), jwtGo.SigningMethodHS384.Alg(), jwtGo.SigningMethodHS512.Alg():
+			ret = secret
+		case jwtGo.SigningMethodRS256.Alg(), jwtGo.SigningMethodRS384.Alg(), jwtGo.SigningMethodRS512.Alg():
+			ret, err = jwtGo.ParseRSAPublicKeyFromPEM(secret)
+		case jwtGo.SigningMethodES256.Alg(), jwtGo.SigningMethodES384.Alg(), jwtGo.SigningMethodES512.Alg():
+			ret, err = jwtGo.ParseECPublicKeyFromPEM(secret)
+		default:
+			log.Debugf("unexpected signing method: %v", token.Header["alg"])
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error parsing public key: %w", err)
+		}
+		return ret, nil
 	})
 
 	expirationError := false
@@ -145,7 +164,7 @@ func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.M
 			return nil, err
 		}
 
-		if v, ok := err.(*jwtGo.ValidationError); ok && v.Errors == jwtGo.ValidationErrorExpired {
+		if errors.Is(err, jwtGo.ErrTokenExpired) {
 			expirationError = true
 		}
 	}
