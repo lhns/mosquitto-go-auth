@@ -1,7 +1,13 @@
 package backends
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +117,220 @@ func TestJWTClaims(t *testing.T) {
 
 			_, err = getJWTClaims(jwtSecret, token, true)
 			So(err, ShouldBeNil)
+		})
+	})
+}
+
+func TestJWTAsymmetricKeys(t *testing.T) {
+	Convey("When using RSA signed tokens", t, func() {
+		// Generate RSA key pair
+		rsaPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		So(err, ShouldBeNil)
+
+		rsaPublicKeyBytes, err := x509.MarshalPKIXPublicKey(&rsaPrivateKey.PublicKey)
+		So(err, ShouldBeNil)
+
+		rsaPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: rsaPublicKeyBytes,
+		})
+
+		Convey("RS256 token should validate with correct public key", func() {
+			rsaToken := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := rsaToken.SignedString(rsaPrivateKey)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("RS384 token should validate with correct public key", func() {
+			rsaToken := jwt.NewWithClaims(jwt.SigningMethodRS384, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := rsaToken.SignedString(rsaPrivateKey)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("RS512 token should validate with correct public key", func() {
+			rsaToken := jwt.NewWithClaims(jwt.SigningMethodRS512, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := rsaToken.SignedString(rsaPrivateKey)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("RSA token with wrong public key should fail", func() {
+			rsaToken := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := rsaToken.SignedString(rsaPrivateKey)
+			So(err, ShouldBeNil)
+
+			// Generate a different RSA key
+			wrongPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+			So(err, ShouldBeNil)
+
+			wrongPublicKeyBytes, err := x509.MarshalPKIXPublicKey(&wrongPrivateKey.PublicKey)
+			So(err, ShouldBeNil)
+
+			wrongPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: wrongPublicKeyBytes,
+			})
+
+			_, err = getJWTClaims(wrongPublicKeyPEM, token, false)
+			So(err, ShouldNotBeNil)
+		})
+	})
+
+	Convey("When using ECDSA signed tokens", t, func() {
+		// Generate ECDSA key pair
+		ecPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		So(err, ShouldBeNil)
+
+		ecPublicKeyBytes, err := x509.MarshalPKIXPublicKey(&ecPrivateKey.PublicKey)
+		So(err, ShouldBeNil)
+
+		ecPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "PUBLIC KEY",
+			Bytes: ecPublicKeyBytes,
+		})
+
+		Convey("ES256 token should validate with correct public key", func() {
+			ecToken := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := ecToken.SignedString(ecPrivateKey)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(ecPublicKeyPEM, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("ES384 token should validate with correct public key", func() {
+			// Generate P384 key for ES384
+			ecPrivateKey384, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+			So(err, ShouldBeNil)
+
+			ecPublicKeyBytes384, err := x509.MarshalPKIXPublicKey(&ecPrivateKey384.PublicKey)
+			So(err, ShouldBeNil)
+
+			ecPublicKeyPEM384 := pem.EncodeToMemory(&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: ecPublicKeyBytes384,
+			})
+
+			ecToken := jwt.NewWithClaims(jwt.SigningMethodES384, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := ecToken.SignedString(ecPrivateKey384)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(ecPublicKeyPEM384, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("ES512 token should validate with correct public key", func() {
+			// Generate P521 key for ES512
+			ecPrivateKey521, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+			So(err, ShouldBeNil)
+
+			ecPublicKeyBytes521, err := x509.MarshalPKIXPublicKey(&ecPrivateKey521.PublicKey)
+			So(err, ShouldBeNil)
+
+			ecPublicKeyPEM521 := pem.EncodeToMemory(&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: ecPublicKeyBytes521,
+			})
+
+			ecToken := jwt.NewWithClaims(jwt.SigningMethodES512, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := ecToken.SignedString(ecPrivateKey521)
+			So(err, ShouldBeNil)
+
+			_, err = getJWTClaims(ecPublicKeyPEM521, token, false)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("ECDSA token with wrong public key should fail", func() {
+			ecToken := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
+				"iss":      "jwt-test",
+				"aud":      "jwt-test",
+				"nbf":      nowSecondsSinceEpoch,
+				"exp":      expSecondsSinceEpoch,
+				"sub":      "user",
+				"username": username,
+			})
+
+			token, err := ecToken.SignedString(ecPrivateKey)
+			So(err, ShouldBeNil)
+
+			// Generate a different ECDSA key
+			wrongPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			So(err, ShouldBeNil)
+
+			wrongPublicKeyBytes, err := x509.MarshalPKIXPublicKey(&wrongPrivateKey.PublicKey)
+			So(err, ShouldBeNil)
+
+			wrongPublicKeyPEM := pem.EncodeToMemory(&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: wrongPublicKeyBytes,
+			})
+
+			_, err = getJWTClaims(wrongPublicKeyPEM, token, false)
+			So(err, ShouldNotBeNil)
 		})
 	})
 }
