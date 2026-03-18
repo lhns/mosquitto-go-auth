@@ -26,6 +26,7 @@ type AuthPlugin struct {
 	hasher                hashing.HashComparer
 	retryCount            int
 	useClientidAsUsername bool
+	allowEmptyCredentials bool
 }
 
 // errors to signal mosquitto
@@ -64,11 +65,18 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		}
 	}
 
-	if useClientidAsUsername, ok := authOpts["use_clientid_as_username"]; ok && strings.Replace(useClientidAsUsername, " ", "", -1) == "true" {
+	if useClientidAsUsername, ok := authOpts["use_clientid_as_username"]; ok && strings.ReplaceAll(useClientidAsUsername, " ", "") == "true" {
 		log.Info("clientid will be used as username on checks")
 		authPlugin.useClientidAsUsername = true
 	} else {
 		authPlugin.useClientidAsUsername = false
+	}
+
+	if allowEmptyCredentials, ok := authOpts["allow_empty_credentials"]; ok && strings.ReplaceAll(allowEmptyCredentials, " ", "") == "true" {
+		log.Info("empty credentials will be allowed")
+		authPlugin.allowEmptyCredentials = true
+	} else {
+		authPlugin.allowEmptyCredentials = false
 	}
 
 	//Check if log level is given. Set level if any valid option is given.
@@ -314,6 +322,12 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 	var err error
 
 	username = setUsername(username, clientid)
+
+	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
+	if (password == "" || username == "") && !authPlugin.allowEmptyCredentials {
+		log.Debugf("empty username or password not allowed")
+		return false, nil
+	}
 
 	if authPlugin.useCache {
 		log.Debugf("checking auth cache for %s", username)

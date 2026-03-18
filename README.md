@@ -297,6 +297,17 @@ including cached ones, will drop Mosquitto's passed `username` and use `clientid
 
 This option default to false if not given or anything but `true` is set to its value.
 
+#### Allow empty passwords
+
+By default the plugin rejects authentication attempts that present an empty password. You can override this behavior with:
+
+```
+auth_opt_allow_empty_credentials true
+```
+
+When set to `true`, empty username and passwords will be allowed. When omitted or set to any value other than `true`, the plugin will reject empty usernames or passwords (default behavior). This option is useful when some backends or clients deliberately send an empty password and you want to permit it.
+
+
 #### Cache
 
 There are 2 types of caches supported: an in memory one using [go-cache](https://github.com/patrickmn/go-cache), or a Redis backed one.
