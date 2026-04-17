@@ -42,7 +42,7 @@ jobs:
           zip -r linux-armv6.zip linux-armv6
       - name: Release files
         if: github.event_name == 'release' && github.event.action == 'published'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             output/linux-amd64.zip
