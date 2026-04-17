@@ -23,7 +23,7 @@ jobs:
         with:
           path: mosquitto-go-auth
       - name: Docker setup
-        uses: docker/setup-docker-action@v4
+        uses: docker/setup-docker-action@v5
       - name: run build
         run: |
           docker run \
