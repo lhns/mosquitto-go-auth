@@ -43,7 +43,7 @@ jobs:
       
       - name: Build and push on release
         if: github.event_name == 'release' && github.event.action == 'published'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
@@ -52,7 +52,7 @@ jobs:
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
@@ -61,7 +61,7 @@ jobs:
       
       - name: Build on push
         if: github.event_name == 'push' && github.ref != 'refs/heads/master'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
@@ -97,7 +97,7 @@ jobs:
       
       - name: Build and push on release
         if: github.event_name == 'release' && github.event.action == 'published'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
@@ -106,7 +106,7 @@ jobs:
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
@@ -117,7 +117,7 @@ jobs:
       
       - name: Build on push
         if: github.event_name == 'push' && github.ref != 'refs/heads/master'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
