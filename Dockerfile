@@ -80,8 +80,7 @@ RUN set -ex; \
     *)               extras="" ;; \
   esac; \
   apt-get update; \
-  apt-get install -y --no-install-recommends libcjson-dev $extras; \
-  rm -rf /var/lib/apt/lists/*
+  apt-get install -y --no-install-recommends libcjson-dev $extras
 
 WORKDIR /app
 COPY --from=mosquitto_builder /usr/local/include/ /usr/local/include/
