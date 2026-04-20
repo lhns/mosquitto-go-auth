@@ -6,6 +6,9 @@ apt-get update
 apt-get install -y gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 cd /usr/src/mosquitto-$MOSQUITTO_VERSION/include
 cp *.h /usr/include
+# Mosquitto 2.1+ moved its real headers into a mosquitto/ subdirectory;
+# the top-level headers are thin compatibility shims that #include them.
+[ -d mosquitto ] && cp -r mosquitto /usr/include/
 cd /usr/src/mosquitto-go-auth
 
 echo "build amd64 Linux" >&2
