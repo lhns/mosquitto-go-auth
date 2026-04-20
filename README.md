@@ -268,6 +268,8 @@ auth_opt_backends files, postgres, jwt
 
 Set all other plugin options below in the same file.
 
+**Note:** Do not set `password_file` or `acl_file` in `mosquitto.conf`, as they bypass the plugin's auth backends entirely.
+
 #### Backends order
 
 By default, the plugin won't establish any order for checks (Go maps guarantee no order).
