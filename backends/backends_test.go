@@ -52,14 +52,14 @@ func TestBackendsOrder(t *testing.T) {
 		b, err := Initialize(authOpts, log.DebugLevel, version)
 		So(err, ShouldBeNil)
 
-		tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+		tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 		So(err1, ShouldBeNil)
 		So(tt1, ShouldBeTrue)
 
 		redis.conn.Set(ctx, "test1:su", "true", 0)
 
-		aclCheck, err := b.AuthAclCheck(clientid, username, "test/topic/1", 2)
+		aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 2)
 
 		// Files should be checked for ACL first even if it's a superuser in Redis.
 		lastEntry := hook.LastEntry()
@@ -91,14 +91,14 @@ func TestBackendsOrder(t *testing.T) {
 		b, err := Initialize(authOpts, log.DebugLevel, version)
 		So(err, ShouldBeNil)
 
-		tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+		tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 		So(err1, ShouldBeNil)
 		So(tt1, ShouldBeTrue)
 
 		redis.conn.Set(ctx, "test1:su", "true", 0)
 
-		aclCheck, err := b.AuthAclCheck(clientid, username, "test/topic/1", 2)
+		aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 2)
 
 		// Redis should auth the superuser.
 		lastEntry := hook.LastEntry()
@@ -197,8 +197,8 @@ func TestBackends(t *testing.T) {
 
 		// Redis only contains test1, while files has a bunch of more users.
 		// Since Files only registers acl checks, those users should fail.
-		tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
-		tt2, err2 := b.AuthUnpwdCheck("test2", "test2", clientid)
+		tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
+		tt2, err2 := b.AuthUnpwdCheck(context.Background(), "test2", "test2", clientid)
 
 		So(err1, ShouldBeNil)
 		So(tt1, ShouldBeTrue)
@@ -219,11 +219,11 @@ func TestBackends(t *testing.T) {
 
 		redis.conn.SAdd(ctx, username+":racls", "test/redis")
 
-		aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+		aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 		So(err, ShouldBeNil)
 		So(aclCheck, ShouldBeFalse)
 
-		aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 2)
+		aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 2)
 		So(err, ShouldBeNil)
 		So(aclCheck, ShouldBeTrue)
 
@@ -246,8 +246,8 @@ func TestBackends(t *testing.T) {
 		b, err := Initialize(authOpts, log.DebugLevel, version)
 		So(err, ShouldBeNil)
 
-		tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
-		tt2, err2 := b.AuthUnpwdCheck("test2", "test2", clientid)
+		tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
+		tt2, err2 := b.AuthUnpwdCheck(context.Background(), "test2", "test2", clientid)
 
 		So(err1, ShouldBeNil)
 		So(tt1, ShouldBeTrue)
@@ -268,11 +268,11 @@ func TestBackends(t *testing.T) {
 
 		redis.conn.SAdd(ctx, username+":racls", "test/redis")
 
-		aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+		aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 		So(err, ShouldBeNil)
 		So(aclCheck, ShouldBeTrue)
 
-		aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 2)
+		aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 2)
 		So(err, ShouldBeNil)
 		So(aclCheck, ShouldBeTrue)
 
@@ -303,7 +303,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -314,11 +314,11 @@ func TestBackends(t *testing.T) {
 
 			So(b.disableSuperuser, ShouldBeFalse)
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeFalse)
 
@@ -348,7 +348,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -359,11 +359,11 @@ func TestBackends(t *testing.T) {
 
 			So(b.disableSuperuser, ShouldBeTrue)
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeFalse)
 
@@ -393,7 +393,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -401,11 +401,11 @@ func TestBackends(t *testing.T) {
 			// Set a topic and check an unregistered one, they should both pass.
 			redis.conn.SAdd(ctx, username+":racls", "test/redis")
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
@@ -437,7 +437,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -448,11 +448,11 @@ func TestBackends(t *testing.T) {
 
 			So(b.disableSuperuser, ShouldBeFalse)
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeFalse)
 
@@ -482,7 +482,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -493,11 +493,11 @@ func TestBackends(t *testing.T) {
 
 			So(b.disableSuperuser, ShouldBeTrue)
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeFalse)
 
@@ -527,7 +527,7 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			tt1, err1 := b.AuthUnpwdCheck(username, password, clientid)
+			tt1, err1 := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
@@ -535,11 +535,11 @@ func TestBackends(t *testing.T) {
 			// Set a topic and check an unregistered one, they should both pass.
 			redis.conn.SAdd(ctx, username+":racls", "test/redis")
 
-			aclCheck, err := b.AuthAclCheck(clientid, username, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, username, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, username, "test/topic/1", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, username, "test/topic/1", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
@@ -571,23 +571,23 @@ func TestBackends(t *testing.T) {
 			b, err := Initialize(authOpts, log.DebugLevel, version)
 			So(err, ShouldBeNil)
 
-			userCheck, err := b.AuthUnpwdCheck(username, password, clientid)
+			userCheck, err := b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err, ShouldBeNil)
 			So(userCheck, ShouldBeTrue)
 
 			redis.conn.SAdd(ctx, stripUsername+":racls", "test/redis")
 
-			aclCheck, err := b.AuthAclCheck(clientid, stripUsername, "test/redis", 1)
+			aclCheck, err := b.AuthAclCheck(context.Background(), clientid, stripUsername, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 
-			userCheck, err = b.AuthUnpwdCheck(username, password, clientid)
+			userCheck, err = b.AuthUnpwdCheck(context.Background(), username, password, clientid)
 
 			So(err, ShouldBeNil)
 			So(userCheck, ShouldBeTrue)
 
-			aclCheck, err = b.AuthAclCheck(clientid, stripUsername, "test/redis", 1)
+			aclCheck, err = b.AuthAclCheck(context.Background(), clientid, stripUsername, "test/redis", 1)
 			So(err, ShouldBeNil)
 			So(aclCheck, ShouldBeTrue)
 

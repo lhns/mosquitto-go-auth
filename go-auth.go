@@ -13,13 +13,17 @@ import (
 	bes "github.com/iegomez/mosquitto-go-auth/backends"
 	"github.com/iegomez/mosquitto-go-auth/cache"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
+	"github.com/iegomez/mosquitto-go-auth/telemetry"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // BackendsChecker is the interface used by AuthPlugin to check credentials and ACLs.
 type BackendsChecker interface {
-	AuthUnpwdCheck(username, password, clientid string) (bool, error)
-	AuthAclCheck(clientid, username, topic string, acc int) (bool, error)
+	AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error)
+	AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error)
 	Halt()
 }
 
@@ -35,6 +39,7 @@ type AuthPlugin struct {
 	retryCount            int
 	useClientidAsUsername bool
 	allowEmptyCredentials bool
+	telemetryShutdown     func(context.Context) error
 }
 
 // errors to signal mosquitto
@@ -57,6 +62,16 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 	authPlugin = AuthPlugin{
 		logLevel: log.InfoLevel,
 		ctx:      context.Background(),
+	}
+
+	if shutdown, err := telemetry.Init(authPlugin.ctx); err != nil {
+		log.Warnf("telemetry init failed, continuing without: %s", err)
+		authPlugin.telemetryShutdown = shutdown
+	} else {
+		authPlugin.telemetryShutdown = shutdown
+		if telemetry.Active() {
+			log.Info("telemetry enabled (OTLP)")
+		}
 	}
 
 	authOpts = make(map[string]string)
@@ -331,31 +346,57 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 
 	username = setUsername(username, clientid)
 
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check",
+		trace.WithAttributes(
+			attribute.String("auth.username", username),
+			attribute.String("auth.clientid", clientid),
+		),
+	)
+	start := time.Now()
+	defer func() {
+		result := authResult(authenticated, err)
+		span.SetAttributes(attribute.String("auth.result", result))
+		span.End()
+		attrs := metric.WithAttributes(attribute.String("result", result))
+		telemetry.AuthDuration.Record(ctx, time.Since(start).Seconds(), attrs)
+		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("kind", "unpwd"),
+			attribute.String("result", result),
+		))
+	}()
+
 	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
 	if (password == "" || username == "") && !authPlugin.allowEmptyCredentials {
-		log.Debugf("empty username or password not allowed")
-		return false, fmt.Errorf("empty username or password not allowed")
+		log.WithContext(ctx).Debugf("empty username or password not allowed")
+		err = fmt.Errorf("empty username or password not allowed")
+		return false, err
 	}
 
 	if authPlugin.useCache {
-		log.Debugf("checking auth cache for %s", username)
-		cached, granted = authPlugin.cache.CheckAuthRecord(authPlugin.ctx, username, password)
+		log.WithContext(ctx).Debugf("checking auth cache for %s", username)
+		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
 		if cached {
-			log.Debugf("found in cache: %s", username)
+			log.WithContext(ctx).Debugf("found in cache: %s", username)
+			span.AddEvent("cache.hit")
+			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "auth")))
+			authenticated = granted
 			return granted, nil
 		}
+		span.AddEvent("cache.miss")
+		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "auth")))
 	}
 
-	authenticated, err = authPlugin.backends.AuthUnpwdCheck(username, password, clientid)
+	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
 	if authPlugin.useCache && err == nil {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
 		}
-		log.Debugf("setting auth cache for %s", username)
-		if setAuthErr := authPlugin.cache.SetAuthRecord(authPlugin.ctx, username, password, authGranted); setAuthErr != nil {
-			log.Errorf("set auth cache: %s", setAuthErr)
+		log.WithContext(ctx).Debugf("setting auth cache for %s", username)
+		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, authGranted); setAuthErr != nil {
+			log.WithContext(ctx).Errorf("set auth cache: %s", setAuthErr)
+			err = setAuthErr
 			return false, setAuthErr
 		}
 	}
@@ -394,31 +435,69 @@ func authAclCheck(clientid, username, topic string, acc int) (bool, error) {
 
 	username = setUsername(username, clientid)
 
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check",
+		trace.WithAttributes(
+			attribute.String("auth.username", username),
+			attribute.String("auth.clientid", clientid),
+			attribute.String("auth.topic", topic),
+			attribute.Int("auth.access", acc),
+		),
+	)
+	start := time.Now()
+	defer func() {
+		result := authResult(aclCheck, err)
+		span.SetAttributes(attribute.String("auth.result", result))
+		span.End()
+		attrs := metric.WithAttributes(attribute.String("result", result))
+		telemetry.ACLDuration.Record(ctx, time.Since(start).Seconds(), attrs)
+		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
+			attribute.String("kind", "acl"),
+			attribute.String("result", result),
+		))
+	}()
+
 	if authPlugin.useCache {
-		log.Debugf("checking acl cache for %s", username)
-		cached, granted = authPlugin.cache.CheckACLRecord(authPlugin.ctx, username, topic, clientid, acc)
+		log.WithContext(ctx).Debugf("checking acl cache for %s", username)
+		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
 		if cached {
-			log.Debugf("found in cache: %s", username)
+			log.WithContext(ctx).Debugf("found in cache: %s", username)
+			span.AddEvent("cache.hit")
+			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "acl")))
+			aclCheck = granted
 			return granted, nil
 		}
+		span.AddEvent("cache.miss")
+		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "acl")))
 	}
 
-	aclCheck, err = authPlugin.backends.AuthAclCheck(clientid, username, topic, acc)
+	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
 	if authPlugin.useCache && err == nil {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
 		}
-		log.Debugf("setting acl cache (granted = %s) for %s", authGranted, username)
-		if setACLErr := authPlugin.cache.SetACLRecord(authPlugin.ctx, username, topic, clientid, acc, authGranted); setACLErr != nil {
-			log.Errorf("set acl cache: %s", setACLErr)
+		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, username)
+		if setACLErr := authPlugin.cache.SetACLRecord(ctx, username, topic, clientid, acc, authGranted); setACLErr != nil {
+			log.WithContext(ctx).Errorf("set acl cache: %s", setACLErr)
+			err = setACLErr
 			return false, setACLErr
 		}
 	}
 
-	log.Debugf("Acl is %t for user %s", aclCheck, username)
+	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, username)
 	return aclCheck, err
+}
+
+// authResult maps (ok, err) into a result label used on spans and metrics.
+func authResult(ok bool, err error) string {
+	if err != nil {
+		return "error"
+	}
+	if ok {
+		return "granted"
+	}
+	return "rejected"
 }
 
 //export AuthPskKeyGet
@@ -435,6 +514,14 @@ func AuthPluginCleanup() {
 	}
 
 	authPlugin.backends.Halt()
+
+	if authPlugin.telemetryShutdown != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := authPlugin.telemetryShutdown(ctx); err != nil {
+			log.Warnf("telemetry shutdown: %s", err)
+		}
+	}
 }
 
 func setUsername(username, clientid string) string {
