@@ -70,28 +70,21 @@ ARG BUILDPLATFORM
 COPY --from=xx / /
 RUN go env
 
-# Install needed libc and gcc for target platform.
+# Install libcjson-dev (Mosquitto 2.1 headers transitively #include
+# <cjson/cJSON.h>) plus any cross-compile toolchain for TARGETPLATFORM.
 RUN set -ex; \
-  if [ ! -z "$TARGETPLATFORM" ]; then \
-    case "$TARGETPLATFORM" in \
-  "linux/arm64") \
-    apt update && apt install -y binutils gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
-    ;; \
-  "linux/arm/v7") \
-    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
-    ;; \
-  "linux/arm/v6") \
-    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross \
-    ;; \
-  esac \
-  fi
+  case "$TARGETPLATFORM" in \
+    "linux/arm64")   extras="binutils gcc-aarch64-linux-gnu libc6-dev-arm64-cross" ;; \
+    "linux/arm/v7")  extras="binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross" ;; \
+    "linux/arm/v6")  extras="binutils gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross" ;; \
+    *)               extras="" ;; \
+  esac; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends libcjson-dev $extras; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=mosquitto_builder /usr/local/include/ /usr/local/include/
-
-# Mosquitto 2.1 headers transitively include <cjson/cJSON.h>, so cgo needs
-# the libcjson headers available in this stage too.
-RUN apt-get update && apt-get install -y --no-install-recommends libcjson-dev && rm -rf /var/lib/apt/lists/*
 
 COPY ./ ./
 RUN set -ex; \
