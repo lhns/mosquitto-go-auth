@@ -84,10 +84,12 @@ int mosquitto_auth_unpwd_check(void *userdata, const char *username, const char 
   #else
     const char* clientid = "";
   #endif
-  if (username == NULL || password == NULL) {
-    printf("error: received null username or password for unpwd check\n");
-    fflush(stdout);
-    return MOSQ_ERR_AUTH;
+
+  if (username == NULL) {
+    username = "";
+  }
+  if (password == NULL) {
+    password = "";
   }
 
   GoUint8 ret = AuthUnpwdCheck((char *)username, (char *)password, (char *)clientid);
