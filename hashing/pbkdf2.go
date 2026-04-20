@@ -46,18 +46,17 @@ func (h pbkdf2Hasher) Hash(password string) (string, error) {
 	salt := make([]byte, h.saltSize)
 	_, err := rand.Read(salt)
 
-	// We need to ensure that salt doesn't contain $, which is 36 in decimal.
-	// So we check if there's byte that represents $ and change it with a random number in the range 0-35
-	// // This is far from ideal, but should be good enough with a reasonable salt size.
+	// We need to ensure that salt doesn't contain $, which is 36 in decimal,
+	// because $ is used as the field separator in the stored hash string.
+	// Replace every $ byte with a random byte in 0-34. This is far from ideal,
+	// but should be good enough with a reasonable salt size.
 	for i := 0; i < len(salt); i++ {
 		if salt[i] == 36 {
 			n, err := rand.Int(rand.Reader, big.NewInt(35))
 			if err != nil {
 				return "", fmt.Errorf("read random byte error: %s", err)
 			}
-
 			salt[i] = byte(n.Int64())
-			break
 		}
 	}
 	if err != nil {
