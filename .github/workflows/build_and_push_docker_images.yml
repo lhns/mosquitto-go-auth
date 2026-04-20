@@ -48,7 +48,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -57,7 +59,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:master${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_1) }}
       
       - name: Build on push
         if: github.event_name == 'push' && github.ref != 'refs/heads/master'
@@ -102,7 +104,10 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:${{ github.event.release.tag_name }}${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest
       
       - name: Build and push on push
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -112,8 +117,8 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
-            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:master${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:master
       
       - name: Build on push
         if: github.event_name == 'push' && github.ref != 'refs/heads/master'
