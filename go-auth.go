@@ -4,6 +4,7 @@ import "C"
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -15,8 +16,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// BackendsChecker is the interface used by AuthPlugin to check credentials and ACLs.
+type BackendsChecker interface {
+	AuthUnpwdCheck(username, password, clientid string) (bool, error)
+	AuthAclCheck(clientid, username, topic string, acc int) (bool, error)
+	Halt()
+}
+
 type AuthPlugin struct {
-	backends              *bes.Backends
+	backends              BackendsChecker
 	useCache              bool
 	logLevel              log.Level
 	logDest               string
@@ -326,7 +334,7 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
 	if (password == "" || username == "") && !authPlugin.allowEmptyCredentials {
 		log.Debugf("empty username or password not allowed")
-		return false, nil
+		return false, fmt.Errorf("empty username or password not allowed")
 	}
 
 	if authPlugin.useCache {
