@@ -89,6 +89,10 @@ RUN set -ex; \
 WORKDIR /app
 COPY --from=mosquitto_builder /usr/local/include/ /usr/local/include/
 
+# Mosquitto 2.1 headers transitively include <cjson/cJSON.h>, so cgo needs
+# the libcjson headers available in this stage too.
+RUN apt-get update && apt-get install -y --no-install-recommends libcjson-dev && rm -rf /var/lib/apt/lists/*
+
 COPY ./ ./
 RUN set -ex; \
     go build -buildmode=c-archive go-auth.go; \

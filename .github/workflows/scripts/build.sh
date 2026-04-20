@@ -3,7 +3,8 @@
 set -eo pipefail
 
 apt-get update
-apt-get install -y gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+# libcjson-dev: Mosquitto 2.1 headers transitively #include <cjson/cJSON.h>.
+apt-get install -y gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libcjson-dev
 cd /usr/src/mosquitto-$MOSQUITTO_VERSION/include
 cp *.h /usr/include
 # Mosquitto 2.1+ moved its real headers into a mosquitto/ subdirectory;
