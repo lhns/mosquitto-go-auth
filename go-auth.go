@@ -64,14 +64,12 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		ctx:      context.Background(),
 	}
 
-	if shutdown, err := telemetry.Init(authPlugin.ctx); err != nil {
+	shutdown, err := telemetry.Init(authPlugin.ctx)
+	authPlugin.telemetryShutdown = shutdown
+	if err != nil {
 		log.Warnf("telemetry init failed, continuing without: %s", err)
-		authPlugin.telemetryShutdown = shutdown
-	} else {
-		authPlugin.telemetryShutdown = shutdown
-		if telemetry.Active() {
-			log.Info("telemetry enabled (OTLP)")
-		}
+	} else if telemetry.Active() {
+		log.Info("telemetry enabled (OTLP)")
 	}
 
 	authOpts = make(map[string]string)
@@ -140,8 +138,6 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 			log.Info("log_dest unknown, using default stderr")
 		}
 	}
-
-	var err error
 
 	authPlugin.backends, err = bes.Initialize(authOpts, authPlugin.logLevel, C.GoString(version))
 	if err != nil {
@@ -338,11 +334,9 @@ func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
 	return AuthRejected
 }
 
-func authUnpwdCheck(username, password, clientid string) (bool, error) {
-	var authenticated bool
+func authUnpwdCheck(username, password, clientid string) (authenticated bool, err error) {
 	var cached bool
 	var granted bool
-	var err error
 
 	username = setUsername(username, clientid)
 
@@ -368,8 +362,7 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
 	if (password == "" || username == "") && !authPlugin.allowEmptyCredentials {
 		log.WithContext(ctx).Debugf("empty username or password not allowed")
-		err = fmt.Errorf("empty username or password not allowed")
-		return false, err
+		return false, fmt.Errorf("empty username or password not allowed")
 	}
 
 	if authPlugin.useCache {
@@ -379,7 +372,6 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
 			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "auth")))
-			authenticated = granted
 			return granted, nil
 		}
 		span.AddEvent("cache.miss")
@@ -396,7 +388,6 @@ func authUnpwdCheck(username, password, clientid string) (bool, error) {
 		log.WithContext(ctx).Debugf("setting auth cache for %s", username)
 		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, authGranted); setAuthErr != nil {
 			log.WithContext(ctx).Errorf("set auth cache: %s", setAuthErr)
-			err = setAuthErr
 			return false, setAuthErr
 		}
 	}
@@ -427,11 +418,9 @@ func AuthAclCheck(clientid, username, topic *C.char, acc C.int) uint8 {
 	return AuthRejected
 }
 
-func authAclCheck(clientid, username, topic string, acc int) (bool, error) {
-	var aclCheck bool
+func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err error) {
 	var cached bool
 	var granted bool
-	var err error
 
 	username = setUsername(username, clientid)
 
@@ -463,7 +452,6 @@ func authAclCheck(clientid, username, topic string, acc int) (bool, error) {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
 			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "acl")))
-			aclCheck = granted
 			return granted, nil
 		}
 		span.AddEvent("cache.miss")
@@ -480,7 +468,6 @@ func authAclCheck(clientid, username, topic string, acc int) (bool, error) {
 		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, username)
 		if setACLErr := authPlugin.cache.SetACLRecord(ctx, username, topic, clientid, acc, authGranted); setACLErr != nil {
 			log.WithContext(ctx).Errorf("set acl cache: %s", setACLErr)
-			err = setACLErr
 			return false, setACLErr
 		}
 	}
@@ -516,9 +503,9 @@ func AuthPluginCleanup() {
 	authPlugin.backends.Halt()
 
 	if authPlugin.telemetryShutdown != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := authPlugin.telemetryShutdown(ctx); err != nil {
+		// Per-export is bounded by OTEL_EXPORTER_OTLP_TIMEOUT (default 10s),
+		// so an unreachable collector won't hang shutdown indefinitely.
+		if err := authPlugin.telemetryShutdown(context.Background()); err != nil {
 			log.Warnf("telemetry shutdown: %s", err)
 		}
 	}
