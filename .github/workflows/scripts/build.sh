@@ -6,10 +6,9 @@ apt-get update
 # libcjson-dev: Mosquitto 2.1 headers transitively #include <cjson/cJSON.h>.
 apt-get install -y gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libcjson-dev
 cd /usr/src/mosquitto-$MOSQUITTO_VERSION/include
-# Mosquitto 2.1+ moved its real headers into a mosquitto/ subdirectory;
-# the top-level headers are thin compatibility shims that #include them.
-cp *.h /usr/include
-cp -r mosquitto /usr/include/
+# Copy both the top-level shim headers and the mosquitto/ subdirectory
+# introduced in 2.1 (shims #include <mosquitto/broker.h> etc.).
+cp -r . /usr/include/
 cd /usr/src/mosquitto-go-auth
 
 echo "build amd64 Linux" >&2
