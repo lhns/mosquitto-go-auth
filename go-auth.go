@@ -343,7 +343,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check",
 		trace.WithAttributes(
 			attribute.String("auth.username", username),
-			attribute.String("auth.clientid", clientid),
+			attribute.String("auth.client_id", clientid),
 		),
 	)
 	start := time.Now()
@@ -351,11 +351,11 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		result := authResult(authenticated, err)
 		span.SetAttributes(attribute.String("auth.result", result))
 		span.End()
-		attrs := metric.WithAttributes(attribute.String("result", result))
+		attrs := metric.WithAttributes(attribute.String("auth.result", result))
 		telemetry.AuthDuration.Record(ctx, time.Since(start).Seconds(), attrs)
 		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("kind", "unpwd"),
-			attribute.String("result", result),
+			attribute.String("auth.kind", "unpwd"),
+			attribute.String("auth.result", result),
 		))
 	}()
 
@@ -371,11 +371,11 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		if cached {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "auth")))
+			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
 			return granted, nil
 		}
 		span.AddEvent("cache.miss")
-		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "auth")))
+		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
 	}
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
@@ -427,7 +427,7 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check",
 		trace.WithAttributes(
 			attribute.String("auth.username", username),
-			attribute.String("auth.clientid", clientid),
+			attribute.String("auth.client_id", clientid),
 			attribute.String("auth.topic", topic),
 			attribute.Int("auth.access", acc),
 		),
@@ -437,11 +437,11 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		result := authResult(aclCheck, err)
 		span.SetAttributes(attribute.String("auth.result", result))
 		span.End()
-		attrs := metric.WithAttributes(attribute.String("result", result))
+		attrs := metric.WithAttributes(attribute.String("auth.result", result))
 		telemetry.ACLDuration.Record(ctx, time.Since(start).Seconds(), attrs)
 		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("kind", "acl"),
-			attribute.String("result", result),
+			attribute.String("auth.kind", "acl"),
+			attribute.String("auth.result", result),
 		))
 	}()
 
@@ -451,11 +451,11 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		if cached {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "acl")))
+			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
 			return granted, nil
 		}
 		span.AddEvent("cache.miss")
-		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", "acl")))
+		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
 	}
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)

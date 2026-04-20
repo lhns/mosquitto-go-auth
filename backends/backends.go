@@ -383,7 +383,7 @@ func checkRegistered(bename string, checkers []string) bool {
 func traceBackendCall(ctx context.Context, bename, op string, fn func(context.Context) (bool, error)) (bool, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "backend."+op,
 		trace.WithAttributes(
-			attribute.String("backend", bename),
+			attribute.String("backend.name", bename),
 			attribute.String("backend.op", op),
 		),
 	)
@@ -399,9 +399,9 @@ func traceBackendCall(ctx context.Context, bename, op string, fn func(context.Co
 	span.End()
 	telemetry.BackendDuration.Record(ctx, time.Since(start).Seconds(),
 		metric.WithAttributes(
-			attribute.String("backend", bename),
-			attribute.String("op", op),
-			attribute.String("status", status),
+			attribute.String("backend.name", bename),
+			attribute.String("backend.op", op),
+			attribute.String("backend.status", status),
 		),
 	)
 	return ok, err

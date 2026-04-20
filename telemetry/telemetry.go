@@ -6,12 +6,14 @@
 //
 // Activation: Init() installs real tracer and meter providers when any of
 //   - OTEL_EXPORTER_OTLP_ENDPOINT
+//   - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+//   - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
 //   - OTEL_SERVICE_NAME
-//   - OTEL_SDK_DISABLED=false
 //
-// is set in the environment. Otherwise it installs no-op providers and
-// returns a no-op shutdown. Callers never need to nil-check Tracer() or
-// the pre-declared metric instruments.
+// is set in the environment, and OTEL_SDK_DISABLED is not "true".
+// Otherwise it installs no-op providers and returns a no-op shutdown.
+// Callers never need to nil-check Tracer() or the pre-declared metric
+// instruments.
 package telemetry
 
 import (
@@ -123,25 +125,20 @@ func Init(ctx context.Context) (func(context.Context) error, error) {
 func noopShutdown(context.Context) error { return nil }
 
 func shouldActivate() bool {
-	if v, ok := os.LookupEnv("OTEL_SDK_DISABLED"); ok {
-		if strings.EqualFold(strings.TrimSpace(v), "true") {
-			return false
-		}
-		if strings.EqualFold(strings.TrimSpace(v), "false") {
+	// OTEL_SDK_DISABLED=true forces everything off, per the OTel spec.
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true") {
+		return false
+	}
+	// Activate when any standard OTel exporter or service-name env is set.
+	for _, k := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_SERVICE_NAME",
+	} {
+		if os.Getenv(k) != "" {
 			return true
 		}
-	}
-	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" {
-		return true
-	}
-	if os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" {
-		return true
-	}
-	if os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" {
-		return true
-	}
-	if os.Getenv("OTEL_SERVICE_NAME") != "" {
-		return true
 	}
 	return false
 }
