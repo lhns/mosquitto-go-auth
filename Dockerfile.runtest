@@ -18,7 +18,9 @@ ENV MOSQUITTO_GO_AUTH_TEST_RUNNING_IN_A_CONTAINER=true
 WORKDIR /app
 
 # Get mosquitto build dependencies.
-RUN apt-get update && apt-get install -y libc-ares2 libc-ares-dev cmake libssl-dev uuid uuid-dev wget build-essential git libcjson-dev gnupg lsb-release
+# libedit-dev / libmicrohttpd-dev / libsqlite3-dev are required by Mosquitto 2.1+
+# (ctrl shell / HTTP API / broker persistence).
+RUN apt-get update && apt-get install -y libc-ares2 libc-ares-dev cmake libssl-dev uuid uuid-dev wget build-essential git libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev gnupg lsb-release
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
 RUN set -ex; \

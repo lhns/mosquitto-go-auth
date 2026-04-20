@@ -10,9 +10,11 @@ ARG MOSQUITTO_VERSION
 ARG LWS_VERSION
 
 # Get mosquitto build dependencies.
+# libedit-dev / libmicrohttpd-dev / libsqlite3-dev are required by Mosquitto 2.1+
+# (ctrl shell / HTTP API / broker persistence).
 RUN set -ex; \
     apt-get update; \
-    apt-get install -y wget build-essential cmake libssl-dev libcjson-dev
+    apt-get install -y wget build-essential cmake libssl-dev libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
 RUN set -ex; \
@@ -98,7 +100,7 @@ FROM debian:bookworm-slim
 
 RUN set -ex; \
     apt update; \
-    apt install -y libc-ares2 openssl uuid tini wget libssl-dev libcjson-dev
+    apt install -y libc-ares2 openssl uuid tini wget libssl-dev libcjson-dev libedit2 libmicrohttpd12 libsqlite3-0
 
 RUN mkdir -p /var/lib/mosquitto /var/log/mosquitto
 RUN set -ex; \
