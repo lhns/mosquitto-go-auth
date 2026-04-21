@@ -48,7 +48,6 @@ var (
 	BackendDuration metric.Float64Histogram
 	CacheHits       metric.Int64Counter
 	CacheMisses     metric.Int64Counter
-	AuthResults     metric.Int64Counter
 )
 
 var active bool
@@ -168,21 +167,19 @@ func bindInstruments(m metric.Meter) {
 		metric.WithDescription("Duration of plugin-level ACL checks"),
 	)
 	BackendDuration, _ = m.Float64Histogram(
-		"backend.duration",
+		"backend.call.duration",
 		metric.WithUnit("s"),
 		metric.WithDescription("Duration of a single backend call"),
 	)
 	CacheHits, _ = m.Int64Counter(
 		"auth.cache.hits",
+		metric.WithUnit("{hit}"),
 		metric.WithDescription("Cache hits for auth or ACL decisions"),
 	)
 	CacheMisses, _ = m.Int64Counter(
 		"auth.cache.misses",
+		metric.WithUnit("{miss}"),
 		metric.WithDescription("Cache misses for auth or ACL decisions"),
-	)
-	AuthResults, _ = m.Int64Counter(
-		"auth.results",
-		metric.WithDescription("Outcomes of auth or ACL decisions, labelled by kind and result"),
 	)
 }
 

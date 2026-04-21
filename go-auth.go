@@ -351,12 +351,9 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		result := authResult(authenticated, err)
 		span.SetAttributes(attribute.String("auth.result", result))
 		span.End()
-		attrs := metric.WithAttributes(attribute.String("auth.result", result))
-		telemetry.AuthDuration.Record(ctx, time.Since(start).Seconds(), attrs)
-		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("auth.kind", "unpwd"),
-			attribute.String("auth.result", result),
-		))
+		telemetry.AuthDuration.Record(ctx, time.Since(start).Seconds(),
+			metric.WithAttributes(attribute.String("auth.result", result)),
+		)
 	}()
 
 	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
@@ -437,12 +434,9 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		result := authResult(aclCheck, err)
 		span.SetAttributes(attribute.String("auth.result", result))
 		span.End()
-		attrs := metric.WithAttributes(attribute.String("auth.result", result))
-		telemetry.ACLDuration.Record(ctx, time.Since(start).Seconds(), attrs)
-		telemetry.AuthResults.Add(ctx, 1, metric.WithAttributes(
-			attribute.String("auth.kind", "acl"),
-			attribute.String("auth.result", result),
-		))
+		telemetry.ACLDuration.Record(ctx, time.Since(start).Seconds(),
+			metric.WithAttributes(attribute.String("auth.result", result)),
+		)
 	}()
 
 	if authPlugin.useCache {

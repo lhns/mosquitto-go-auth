@@ -389,19 +389,19 @@ func traceBackendCall(ctx context.Context, bename, op string, fn func(context.Co
 	)
 	start := time.Now()
 	ok, err := fn(ctx)
-	status := "ok"
+	result := "granted"
 	if err != nil {
-		status = "error"
+		result = "error"
 	} else if !ok {
-		status = "deny"
+		result = "rejected"
 	}
-	span.SetAttributes(attribute.String("backend.status", status))
+	span.SetAttributes(attribute.String("backend.result", result))
 	span.End()
 	telemetry.BackendDuration.Record(ctx, time.Since(start).Seconds(),
 		metric.WithAttributes(
 			attribute.String("backend.name", bename),
 			attribute.String("backend.op", op),
-			attribute.String("backend.status", status),
+			attribute.String("backend.result", result),
 		),
 	)
 	return ok, err
