@@ -91,32 +91,32 @@ func NewHasher(authOpts map[string]string, backend string) HashComparer {
 	switch opts["hasher"] {
 	case BcryptOpt:
 		log.Debugf("new hasher: %s", BcryptOpt)
-		cost, err := strconv.ParseInt(opts["hasher_cost"], 10, 64)
+		cost, err := strconv.Atoi(opts["hasher_cost"])
 		if err != nil {
 			return NewBcryptHashComparer(defaultBcryptCost)
 		}
-		return NewBcryptHashComparer(int(cost))
+		return NewBcryptHashComparer(cost)
 	case Argon2IDOpt:
 		log.Debugf("new hasher: %s", Argon2IDOpt)
 		saltSize := defaultArgon2IDSaltSize
-		if v, err := strconv.ParseInt(opts["hasher_salt_size"], 10, 64); err == nil {
-			saltSize = int(v)
+		if v, err := strconv.Atoi(opts["hasher_salt_size"]); err == nil {
+			saltSize = v
 		}
 		memory := defaultArgon2IDMemory
 		if v, err := strconv.ParseUint(opts["hasher_memory"], 10, 32); err == nil {
 			memory = uint32(v)
 		}
 		iterations := defaultArgon2IDIterations
-		if v, err := strconv.ParseInt(opts["hasher_iterations"], 10, 64); err == nil {
-			iterations = int(v)
+		if v, err := strconv.Atoi(opts["hasher_iterations"]); err == nil {
+			iterations = v
 		}
 		parallelism := defaultArgon2IDParallelism
 		if v, err := strconv.ParseUint(opts["hasher_parallelism"], 10, 8); err == nil {
 			parallelism = uint8(v)
 		}
 		keyLen := defaultArgon2IDKeyLen
-		if v, err := strconv.ParseInt(opts["hasher_keylen"], 10, 64); err == nil {
-			keyLen = int(v)
+		if v, err := strconv.Atoi(opts["hasher_keylen"]); err == nil {
+			keyLen = v
 		}
 		return NewArgon2IDHasher(saltSize, iterations, keyLen, memory, parallelism)
 	case Pbkdf2Opt:
@@ -126,17 +126,17 @@ func NewHasher(authOpts map[string]string, backend string) HashComparer {
 	}
 
 	saltSize := defaultPBKDF2SaltSize
-	if v, err := strconv.ParseInt(opts["hasher_salt_size"], 10, 64); err == nil {
-		saltSize = int(v)
+	if v, err := strconv.Atoi(opts["hasher_salt_size"]); err == nil {
+		saltSize = v
 	}
 
 	iterations := defaultPBKDF2Iterations
-	if v, err := strconv.ParseInt(opts["hasher_iterations"], 10, 64); err == nil {
-		iterations = int(v)
+	if v, err := strconv.Atoi(opts["hasher_iterations"]); err == nil {
+		iterations = v
 	}
 	keyLen := defaultPBKDF2KeyLen
-	if v, err := strconv.ParseInt(opts["hasher_keylen"], 10, 64); err == nil {
-		keyLen = int(v)
+	if v, err := strconv.Atoi(opts["hasher_keylen"]); err == nil {
+		keyLen = v
 	}
 	algorithm := defaultPBKDF2Algorithm
 	if opts["hasher_algorithm"] == "sha256" {
