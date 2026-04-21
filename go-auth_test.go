@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -10,11 +11,11 @@ type mockBackends struct {
 	authErr    error
 }
 
-func (m *mockBackends) AuthUnpwdCheck(username, password, clientid string) (bool, error) {
+func (m *mockBackends) AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error) {
 	return m.authResult, m.authErr
 }
 
-func (m *mockBackends) AuthAclCheck(clientid, username, topic string, acc int) (bool, error) {
+func (m *mockBackends) AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error) {
 	return false, nil
 }
 
@@ -100,6 +101,7 @@ func Test_authUnpwdCheck(t *testing.T) {
 			authPlugin = AuthPlugin{
 				backends:              &mockBackends{authResult: tc.backendOk, authErr: tc.backendErr},
 				allowEmptyCredentials: tc.emptyEnabled,
+				ctx:                   context.Background(),
 			}
 
 			ok, err := authUnpwdCheck(tc.username, tc.password, "client-id")

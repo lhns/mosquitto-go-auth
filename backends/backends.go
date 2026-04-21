@@ -1,12 +1,18 @@
 package backends
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/iegomez/mosquitto-go-auth/hashing"
+	"github.com/iegomez/mosquitto-go-auth/telemetry"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Backend interface {
@@ -371,20 +377,50 @@ func checkRegistered(bename string, checkers []string) bool {
 	return false
 }
 
+// traceBackendCall wraps a single backend call with a span and the
+// BackendDuration histogram. Does nothing visible when telemetry is off
+// (noop tracer, noop histogram). Kept short so call sites stay readable.
+func traceBackendCall(ctx context.Context, bename, op string, fn func(context.Context) (bool, error)) (bool, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "backend."+op,
+		trace.WithAttributes(
+			attribute.String("backend.name", bename),
+			attribute.String("backend.op", op),
+		),
+	)
+	start := time.Now()
+	ok, err := fn(ctx)
+	result := "granted"
+	if err != nil {
+		result = "error"
+	} else if !ok {
+		result = "rejected"
+	}
+	span.SetAttributes(attribute.String("backend.result", result))
+	span.End()
+	telemetry.BackendDuration.Record(ctx, time.Since(start).Seconds(),
+		metric.WithAttributes(
+			attribute.String("backend.name", bename),
+			attribute.String("backend.op", op),
+			attribute.String("backend.result", result),
+		),
+	)
+	return ok, err
+}
+
 // AuthUnpwdCheck checks user authentication.
-func (b *Backends) AuthUnpwdCheck(username, password, clientid string) (bool, error) {
+func (b *Backends) AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error) {
 	var authenticated bool
 	var err error
 
 	// If prefixes are enabled, check if username has a valid prefix and use the correct backend if so.
 	if !b.checkPrefix {
-		return b.checkAuth(username, password, clientid)
+		return b.checkAuth(ctx, username, password, clientid)
 	}
 
 	validPrefix, bename := b.lookupPrefix(username)
 
 	if !validPrefix {
-		return b.checkAuth(username, password, clientid)
+		return b.checkAuth(ctx, username, password, clientid)
 	}
 
 	if !checkRegistered(bename, b.userCheckers) {
@@ -400,7 +436,9 @@ func (b *Backends) AuthUnpwdCheck(username, password, clientid string) (bool, er
 	}
 	var backend = b.backends[bename]
 
-	authenticated, err = backend.GetUser(username, password, clientid)
+	authenticated, err = traceBackendCall(ctx, bename, "get_user", func(context.Context) (bool, error) {
+		return backend.GetUser(username, password, clientid)
+	})
 	if authenticated && err == nil {
 		log.Debugf("user %s authenticated with backend %s", username, backend.GetName())
 	}
@@ -408,7 +446,7 @@ func (b *Backends) AuthUnpwdCheck(username, password, clientid string) (bool, er
 	return authenticated, err
 }
 
-func (b *Backends) checkAuth(username, password, clientid string) (bool, error) {
+func (b *Backends) checkAuth(ctx context.Context, username, password, clientid string) (bool, error) {
 	var err error
 
 	for _, bename := range b.userCheckers {
@@ -416,9 +454,11 @@ func (b *Backends) checkAuth(username, password, clientid string) (bool, error) 
 
 		log.Debugf("checking user %s with backend %s", username, backend.GetName())
 
-		if ok, getUserErr := backend.GetUser(username, password, clientid); ok && getUserErr == nil {
+		ok, getUserErr := traceBackendCall(ctx, bename, "get_user", func(context.Context) (bool, error) {
+			return backend.GetUser(username, password, clientid)
+		})
+		if ok && getUserErr == nil {
 			log.Debugf("user %s authenticated with backend %s", username, backend.GetName())
-
 			return true, nil
 		} else if getUserErr != nil && err == nil {
 			err = getUserErr
@@ -429,20 +469,20 @@ func (b *Backends) checkAuth(username, password, clientid string) (bool, error) 
 }
 
 // AuthAclCheck checks user/topic/acc authorization.
-func (b *Backends) AuthAclCheck(clientid, username, topic string, acc int) (bool, error) {
+func (b *Backends) AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error) {
 	var aclCheck bool
 	var err error
 
 	// If prefixes are enabled, check if username has a valid prefix and use the correct backend if so.
 	// Else, check all backends.
 	if !b.checkPrefix {
-		return b.checkAcl(username, topic, clientid, acc)
+		return b.checkAcl(ctx, username, topic, clientid, acc)
 	}
 
 	validPrefix, bename := b.lookupPrefix(username)
 
 	if !validPrefix {
-		return b.checkAcl(username, topic, clientid, acc)
+		return b.checkAcl(ctx, username, topic, clientid, acc)
 	}
 
 	// If the backend is JWT and the token was prefixed, then strip the token.
@@ -458,7 +498,9 @@ func (b *Backends) AuthAclCheck(clientid, username, topic string, acc int) (bool
 	if !b.disableSuperuser && checkRegistered(bename, b.superuserCheckers) {
 		log.Debugf("Superuser check with backend %s", backend.GetName())
 
-		aclCheck, err = backend.GetSuperuser(username)
+		aclCheck, err = traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+			return backend.GetSuperuser(username)
+		})
 
 		if aclCheck && err == nil {
 			log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
@@ -471,7 +513,10 @@ func (b *Backends) AuthAclCheck(clientid, username, topic string, acc int) (bool
 		}
 
 		log.Debugf("Acl check with backend %s", backend.GetName())
-		if ok, checkACLErr := backend.CheckAcl(username, topic, clientid, int32(acc)); ok && checkACLErr == nil {
+		ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+			return backend.CheckAcl(username, topic, clientid, int32(acc))
+		})
+		if ok && checkACLErr == nil {
 			aclCheck = true
 			log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
 		} else if checkACLErr != nil && err == nil {
@@ -483,18 +528,18 @@ func (b *Backends) AuthAclCheck(clientid, username, topic string, acc int) (bool
 	return aclCheck, err
 }
 
-func (b *Backends) checkAcl(username, topic, clientid string, acc int) (bool, error) {
+func (b *Backends) checkAcl(ctx context.Context, username, topic, clientid string, acc int) (bool, error) {
 	// Historically, the plugin checked all backends for superuser first (without order),
 	// and only then it checked for ACLs.
 	// If exhaust_backend_first is set, we check backends for both first following order.
 	if b.exhaustBackendFirst {
-		return b.exhaustBackendsInOrder(username, topic, clientid, acc)
+		return b.exhaustBackendsInOrder(ctx, username, topic, clientid, acc)
 	}
 
-	return b.checkSuperuserThenACL(username, topic, clientid, acc)
+	return b.checkSuperuserThenACL(ctx, username, topic, clientid, acc)
 }
 
-func (b *Backends) exhaustBackendsInOrder(username, topic, clientid string, acc int) (bool, error) {
+func (b *Backends) exhaustBackendsInOrder(ctx context.Context, username, topic, clientid string, acc int) (bool, error) {
 	// Check every backend, in order, for superuser and ACL.
 	var err error
 
@@ -503,9 +548,11 @@ func (b *Backends) exhaustBackendsInOrder(username, topic, clientid string, acc 
 
 		if !b.disableSuperuser && checkRegistered(bename, b.superuserCheckers) {
 			log.Debugf("superuser check with backend %s", backend.GetName())
-			if ok, getSuperuserErr := backend.GetSuperuser(username); ok && getSuperuserErr == nil {
+			ok, getSuperuserErr := traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+				return backend.GetSuperuser(username)
+			})
+			if ok && getSuperuserErr == nil {
 				log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
-
 				return true, nil
 			} else if getSuperuserErr != nil && err == nil {
 				err = getSuperuserErr
@@ -514,9 +561,11 @@ func (b *Backends) exhaustBackendsInOrder(username, topic, clientid string, acc 
 
 		if checkRegistered(bename, b.aclCheckers) {
 			log.Debugf("acl check with backend %s", backend.GetName())
-			if ok, checkACLErr := backend.CheckAcl(username, topic, clientid, int32(acc)); ok && checkACLErr == nil {
+			ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+				return backend.CheckAcl(username, topic, clientid, int32(acc))
+			})
+			if ok && checkACLErr == nil {
 				log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
-
 				return true, nil
 			} else if checkACLErr != nil && err == nil {
 				err = checkACLErr
@@ -528,7 +577,7 @@ func (b *Backends) exhaustBackendsInOrder(username, topic, clientid string, acc 
 	return false, err
 }
 
-func (b *Backends) checkSuperuserThenACL(username, topic, clientid string, acc int) (bool, error) {
+func (b *Backends) checkSuperuserThenACL(ctx context.Context, username, topic, clientid string, acc int) (bool, error) {
 	// Check superusers first
 	var err error
 
@@ -537,9 +586,11 @@ func (b *Backends) checkSuperuserThenACL(username, topic, clientid string, acc i
 			var backend = b.backends[bename]
 
 			log.Debugf("superuser check with backend %s", backend.GetName())
-			if ok, getSuperuserErr := backend.GetSuperuser(username); ok && getSuperuserErr == nil {
+			ok, getSuperuserErr := traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+				return backend.GetSuperuser(username)
+			})
+			if ok && getSuperuserErr == nil {
 				log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
-
 				return true, nil
 			} else if getSuperuserErr != nil && err == nil {
 				err = getSuperuserErr
@@ -551,9 +602,11 @@ func (b *Backends) checkSuperuserThenACL(username, topic, clientid string, acc i
 		var backend = b.backends[bename]
 
 		log.Debugf("Acl check with backend %s", backend.GetName())
-		if ok, checkACLErr := backend.CheckAcl(username, topic, clientid, int32(acc)); ok && checkACLErr == nil {
+		ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+			return backend.CheckAcl(username, topic, clientid, int32(acc))
+		})
+		if ok && checkACLErr == nil {
 			log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
-
 			return true, nil
 		} else if checkACLErr != nil && err == nil {
 			err = checkACLErr
