@@ -145,7 +145,7 @@ func (h pbkdf2Hasher) Compare(password string, passwordHash string) bool {
 
 		hashedPassword, err = base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(hashSplit[3])
 	} else {
-		log.Errorf("invalid PBKDF2 hash supplied, unrecognized format \"%s\"", hashSplit[0])
+		log.Errorf("invalid PBKDF2 hash supplied, unrecognized format")
 		return false
 	}
 
