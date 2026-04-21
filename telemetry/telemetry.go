@@ -155,6 +155,13 @@ func buildResource(ctx context.Context) (*resource.Resource, error) {
 	)
 }
 
+// InstallTestMeterProvider rebinds the package's metric instruments to the
+// given MeterProvider. Intended for tests only — production code should call
+// Init to configure telemetry from OTEL_* environment variables.
+func InstallTestMeterProvider(mp metric.MeterProvider) {
+	bindInstruments(mp.Meter(meterName))
+}
+
 func bindInstruments(m metric.Meter) {
 	AuthDuration, _ = m.Float64Histogram(
 		"auth.unpwd_check.duration",
