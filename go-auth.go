@@ -78,9 +78,9 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 	}
 
 	if retryCount, ok := authOpts["retry_count"]; ok {
-		retry, err := strconv.ParseInt(retryCount, 10, 64)
+		retry, err := strconv.Atoi(retryCount)
 		if err == nil {
-			authPlugin.retryCount = int(retry)
+			authPlugin.retryCount = retry
 		} else {
 			log.Warningf("couldn't parse retryCount (err: %s), defaulting to 0", err)
 		}
