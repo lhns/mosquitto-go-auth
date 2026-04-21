@@ -65,27 +65,81 @@ func TestInstrumentsRecordToReader(t *testing.T) {
 		attribute.String("backend.result", "granted"),
 	))
 	CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
-	CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
+	CacheMisses.Add(ctx, 2, metric.WithAttributes(attribute.String("auth.kind", "acl")))
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(ctx, &rm))
 
-	want := map[string]string{
-		"auth.unpwd_check.duration": "s",
-		"auth.acl_check.duration":   "s",
-		"backend.call.duration":     "s",
-		"auth.cache.hits":           "{hit}",
-		"auth.cache.misses":         "{miss}",
-	}
-	got := map[string]string{}
+	metrics := map[string]metricdata.Metrics{}
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			got[m.Name] = m.Unit
+			metrics[m.Name] = m
 		}
 	}
-	for name, unit := range want {
-		require.Equal(t, unit, got[name], "metric %q missing or wrong unit", name)
+
+	histCases := []struct {
+		name, attrKey, attrVal string
+	}{
+		{"auth.unpwd_check.duration", "auth.result", "granted"},
+		{"auth.acl_check.duration", "auth.result", "rejected"},
+		{"backend.call.duration", "backend.result", "granted"},
 	}
+	for _, tc := range histCases {
+		m, ok := metrics[tc.name]
+		require.True(t, ok, "histogram %q missing", tc.name)
+		require.Equal(t, "s", m.Unit)
+		h, ok := m.Data.(metricdata.Histogram[float64])
+		require.True(t, ok, "%q should be a float64 histogram", tc.name)
+		require.NotEmpty(t, h.DataPoints, "%q has no data points", tc.name)
+		v, _ := h.DataPoints[0].Attributes.Value(attribute.Key(tc.attrKey))
+		require.Equal(t, tc.attrVal, v.AsString(), "%q missing %s=%s", tc.name, tc.attrKey, tc.attrVal)
+	}
+
+	counterCases := []struct {
+		name, unit, kind string
+		wantVal          int64
+	}{
+		{"auth.cache.hits", "{hit}", "unpwd", 1},
+		{"auth.cache.misses", "{miss}", "acl", 2},
+	}
+	for _, tc := range counterCases {
+		m, ok := metrics[tc.name]
+		require.True(t, ok, "counter %q missing", tc.name)
+		require.Equal(t, tc.unit, m.Unit)
+		s, ok := m.Data.(metricdata.Sum[int64])
+		require.True(t, ok, "%q should be an int64 sum", tc.name)
+		require.NotEmpty(t, s.DataPoints, "%q has no data points", tc.name)
+		require.Equal(t, tc.wantVal, s.DataPoints[0].Value)
+		v, _ := s.DataPoints[0].Attributes.Value("auth.kind")
+		require.Equal(t, tc.kind, v.AsString())
+	}
+}
+
+func TestInit_NoEnv(t *testing.T) {
+	for _, k := range []string{
+		"OTEL_SDK_DISABLED",
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_SERVICE_NAME",
+	} {
+		t.Setenv(k, "")
+	}
+
+	shutdown, err := Init(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, shutdown)
+	require.False(t, Active())
+
+	// Instruments must stay safe to call when telemetry never activated.
+	require.NotPanics(t, func() {
+		AuthDuration.Record(context.Background(), 0.001,
+			metric.WithAttributes(attribute.String("auth.result", "granted")))
+		CacheHits.Add(context.Background(), 1,
+			metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
+	})
+
+	require.NoError(t, shutdown(context.Background()))
 }
 
 func TestLogrusHook_AddsTraceAndSpanID(t *testing.T) {

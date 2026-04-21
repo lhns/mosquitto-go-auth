@@ -147,11 +147,11 @@ func findMetric(t *testing.T, rm metricdata.ResourceMetrics, name string) metric
 	return metricdata.Metrics{}
 }
 
-func resultAttr(m metricdata.Metrics) string {
+func resultAttr(t *testing.T, m metricdata.Metrics) string {
+	t.Helper()
 	h, ok := m.Data.(metricdata.Histogram[float64])
-	if !ok || len(h.DataPoints) == 0 {
-		return ""
-	}
+	require.True(t, ok, "metric %q should be a float64 histogram", m.Name)
+	require.NotEmpty(t, h.DataPoints, "metric %q has no data points", m.Name)
 	v, _ := h.DataPoints[0].Attributes.Value("auth.result")
 	return v.AsString()
 }
@@ -172,7 +172,7 @@ func TestAuthUnpwdCheck_EmitsAuthDuration(t *testing.T) {
 
 	m := findMetric(t, rm, "auth.unpwd_check.duration")
 	require.Equal(t, "s", m.Unit)
-	require.Equal(t, "granted", resultAttr(m))
+	require.Equal(t, "granted", resultAttr(t, m))
 }
 
 func TestAuthUnpwdCheck_ErrorResultLabel(t *testing.T) {
@@ -188,7 +188,7 @@ func TestAuthUnpwdCheck_ErrorResultLabel(t *testing.T) {
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(context.Background(), &rm))
 
-	require.Equal(t, "error", resultAttr(findMetric(t, rm, "auth.unpwd_check.duration")))
+	require.Equal(t, "error", resultAttr(t, findMetric(t, rm, "auth.unpwd_check.duration")))
 }
 
 func TestAuthAclCheck_EmitsACLDuration(t *testing.T) {
@@ -206,5 +206,5 @@ func TestAuthAclCheck_EmitsACLDuration(t *testing.T) {
 
 	m := findMetric(t, rm, "auth.acl_check.duration")
 	require.Equal(t, "s", m.Unit)
-	require.Equal(t, "rejected", resultAttr(m))
+	require.Equal(t, "rejected", resultAttr(t, m))
 }
