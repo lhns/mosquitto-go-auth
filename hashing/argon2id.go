@@ -46,12 +46,13 @@ func (h argon2IDHasher) Hash(password string) (string, error) {
 func (h argon2IDHasher) Compare(password string, passwordHash string) bool {
 	hashSplit := strings.Split(passwordHash, "$")
 
-	if hashSplit[1] != "argon2id" {
-		log.Errorf("unknown hash format: %s", hashSplit[1])
-	}
-
 	if len(hashSplit) != 6 {
 		log.Errorf("invalid hash supplied, expected 6 elements, got: %d", len(hashSplit))
+		return false
+	}
+
+	if hashSplit[1] != "argon2id" {
+		log.Errorf("unknown hash format")
 		return false
 	}
 
