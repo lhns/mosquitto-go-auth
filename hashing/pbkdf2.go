@@ -125,7 +125,7 @@ func (h pbkdf2Hasher) Compare(password string, passwordHash string) bool {
 				case "l":
 					keyLen, _ = strconv.Atoi(val)
 				default:
-					log.Errorf("unknown options key (\"%s\")", key)
+					log.Errorf("unknown options key in PBKDF2 hash parameters")
 					return false
 				}
 			}
