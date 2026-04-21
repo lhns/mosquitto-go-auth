@@ -31,7 +31,7 @@ func NewJsJWTChecker(authOpts map[string]string, options tokenOptions) (jwtCheck
 	}
 
 	if stackLimit, ok := authOpts["jwt_js_stack_depth_limit"]; ok {
-		limit, err := strconv.ParseInt(stackLimit, 10, 64)
+		limit, err := strconv.ParseInt(stackLimit, 10, strconv.IntSize)
 		if err != nil {
 			log.Errorf("invalid stack depth limit %s, defaulting to %d", stackLimit, js.DefaultStackDepthLimit)
 		} else {
