@@ -8,6 +8,10 @@
 Mosquitto Go Auth is an authentication and authorization plugin for the Mosquitto MQTT broker.
 The name is terrible, I know, but it's too late to change it. And, you know: naming, cache invalidation, off-by-one errors and whatnot.
 
+> **Note when upgrading to v3.5.0**
+>
+> Mosquitto is upgraded from 2.0.22 to 2.1.2. Mosquitto 2.1.0 changed the default of `allow_duplicate_messages` to `true`, so clients with overlapping subscriptions (e.g. `topic/test` and `topic/#`) now get one delivery per matching filter. Add `allow_duplicate_messages false` to `mosquitto.conf` to keep the 2.0.x behaviour. See the [Mosquitto 2.1.0 ChangeLog](https://github.com/eclipse-mosquitto/mosquitto/blob/master/ChangeLog.txt).
+
 ### Project Status
 
 2025-06-08 [iegomez](https://github.com/iegomez): I haven't used this plugin in almost 6 years nor have followed Mosquitto's changes in some time now.
@@ -107,10 +111,6 @@ As it interacts with `mosquitto`, it makes use of `cgo`. Also, it (optionally) u
 
 *Important*: as of 23/05/2025, or May 23, 2025, I've switched Go cache backing package to https://github.com/jellydator/ttlcache, which makes use of generics.
 Following this change, I've bumped Go version to 1.24.3 and might explore opportunities to refactor code using additions since the last set version in this lib which was 1.18.
-
-> **Note when upgrading to v3.5.0**
->
-> Mosquitto is upgraded from 2.0.22 to 2.1.2. Mosquitto 2.1.0 changed the default of `allow_duplicate_messages` to `true`, so clients with overlapping subscriptions (e.g. `topic/test` and `topic/#`) now get one delivery per matching filter. Add `allow_duplicate_messages false` to `mosquitto.conf` to keep the 2.0.x behaviour. See the [Mosquitto 2.1.0 ChangeLog](https://github.com/eclipse-mosquitto/mosquitto/blob/master/ChangeLog.txt).
 
 
 ### Build
