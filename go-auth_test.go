@@ -4,6 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/iegomez/mosquitto-go-auth/telemetry"
+	"github.com/stretchr/testify/require"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 type mockBackends struct {
@@ -115,4 +121,90 @@ func Test_authUnpwdCheck(t *testing.T) {
 			}
 		})
 	}
+}
+
+// installTestMeter wires package telemetry instruments to a ManualReader and
+// returns the reader. Restores no-op instruments on test cleanup.
+func installTestMeter(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	telemetry.InstallTestMeterProvider(mp)
+	t.Cleanup(func() { telemetry.InstallTestMeterProvider(metricnoop.NewMeterProvider()) })
+	return reader
+}
+
+func findMetric(t *testing.T, rm metricdata.ResourceMetrics, name string) metricdata.Metrics {
+	t.Helper()
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				return m
+			}
+		}
+	}
+	t.Fatalf("metric %q not found", name)
+	return metricdata.Metrics{}
+}
+
+func resultAttr(t *testing.T, m metricdata.Metrics) string {
+	t.Helper()
+	h, ok := m.Data.(metricdata.Histogram[float64])
+	require.True(t, ok, "metric %q should be a float64 histogram", m.Name)
+	require.NotEmpty(t, h.DataPoints, "metric %q has no data points", m.Name)
+	v, _ := h.DataPoints[0].Attributes.Value("auth.result")
+	return v.AsString()
+}
+
+func TestAuthUnpwdCheck_EmitsAuthDuration(t *testing.T) {
+	reader := installTestMeter(t)
+
+	authPlugin = AuthPlugin{
+		backends: &mockBackends{authResult: true},
+		ctx:      context.Background(),
+	}
+	ok, err := authUnpwdCheck("user", "pass", "client")
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	m := findMetric(t, rm, "auth.unpwd_check.duration")
+	require.Equal(t, "s", m.Unit)
+	require.Equal(t, "granted", resultAttr(t, m))
+}
+
+func TestAuthUnpwdCheck_ErrorResultLabel(t *testing.T) {
+	reader := installTestMeter(t)
+
+	authPlugin = AuthPlugin{
+		backends: &mockBackends{authErr: errBackendFailure},
+		ctx:      context.Background(),
+	}
+	_, err := authUnpwdCheck("user", "pass", "client")
+	require.Error(t, err)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	require.Equal(t, "error", resultAttr(t, findMetric(t, rm, "auth.unpwd_check.duration")))
+}
+
+func TestAuthAclCheck_EmitsACLDuration(t *testing.T) {
+	reader := installTestMeter(t)
+
+	authPlugin = AuthPlugin{
+		backends: &mockBackends{},
+		ctx:      context.Background(),
+	}
+	_, err := authAclCheck("client", "user", "topic", 1)
+	require.NoError(t, err)
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+
+	m := findMetric(t, rm, "auth.acl_check.duration")
+	require.Equal(t, "s", m.Unit)
+	require.Equal(t, "rejected", resultAttr(t, m))
 }
