@@ -21,7 +21,7 @@ without-vcs:
 
 test:
 	cd plugin && make
-	go test ./backends ./cache ./hashing -v -count=1 -buildvcs=false
+	go test ./backends ./cache ./hashing ./telemetry -v -count=1 -buildvcs=false
 	go test . -v -count=1 -buildvcs=false -tags test
 	rm plugin/*.so
 
@@ -39,6 +39,9 @@ test-cache:
 
 test-hashing:
 	go test ./hashing -v -failfast -count=1
+
+test-telemetry:
+	go test ./telemetry -v -failfast -count=1
 
 build-docker-test:
 	docker build -t mosquitto-go-auth.test -f Dockerfile.runtest .
