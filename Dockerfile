@@ -1,6 +1,6 @@
 # Define Mosquitto version, see also .github/workflows/build_and_push_docker_images.yml for
 # the automatically built images
-ARG MOSQUITTO_VERSION=2.1.2
+ARG MOSQUITTO_VERSION=2.0.22
 # Define libwebsocket version
 ARG LWS_VERSION=4.4.1
 
@@ -10,11 +10,9 @@ ARG MOSQUITTO_VERSION
 ARG LWS_VERSION
 
 # Get mosquitto build dependencies.
-# libedit-dev / libmicrohttpd-dev / libsqlite3-dev are required by Mosquitto 2.1+
-# (ctrl shell / HTTP API / broker persistence).
 RUN set -ex; \
     apt-get update; \
-    apt-get install -y wget build-essential cmake libssl-dev libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev
+    apt-get install -y wget build-essential cmake libssl-dev libcjson-dev
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
 RUN set -ex; \
@@ -70,17 +68,21 @@ ARG BUILDPLATFORM
 COPY --from=xx / /
 RUN go env
 
-# Install libcjson-dev (Mosquitto 2.1 headers transitively #include
-# <cjson/cJSON.h>) plus any cross-compile toolchain for TARGETPLATFORM.
+# Install needed libc and gcc for target platform.
 RUN set -ex; \
-  case "$TARGETPLATFORM" in \
-    "linux/arm64")   extras="binutils gcc-aarch64-linux-gnu libc6-dev-arm64-cross" ;; \
-    "linux/arm/v7")  extras="binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross" ;; \
-    "linux/arm/v6")  extras="binutils gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross" ;; \
-    *)               extras="" ;; \
-  esac; \
-  apt-get update; \
-  apt-get install -y --no-install-recommends libcjson-dev $extras
+  if [ ! -z "$TARGETPLATFORM" ]; then \
+    case "$TARGETPLATFORM" in \
+  "linux/arm64") \
+    apt update && apt install -y binutils gcc-aarch64-linux-gnu libc6-dev-arm64-cross \
+    ;; \
+  "linux/arm/v7") \
+    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armhf-cross \
+    ;; \
+  "linux/arm/v6") \
+    apt update && apt install -y binutils gcc-arm-linux-gnueabihf libc6-dev-armel-cross libc6-dev-armhf-cross \
+    ;; \
+  esac \
+  fi
 
 WORKDIR /app
 COPY --from=mosquitto_builder /usr/local/include/ /usr/local/include/
@@ -96,7 +98,7 @@ FROM debian:bookworm-slim
 
 RUN set -ex; \
     apt update; \
-    apt install -y libc-ares2 openssl uuid tini wget libssl-dev libcjson-dev libedit2 libmicrohttpd12 libsqlite3-0
+    apt install -y libc-ares2 openssl uuid tini wget libssl-dev libcjson-dev
 
 RUN mkdir -p /var/lib/mosquitto /var/log/mosquitto
 RUN set -ex; \
