@@ -89,6 +89,7 @@ Please open an issue with the `feature` or `enhancement` tag to request new back
    - [Testing gRPC](#testing-grpc)
 - [Javascript](#javascript)
    - [Testing Javascript](#testing-javascript)
+- [Telemetry](#telemetry)
 - [Using with LoRa Server](#using-with-lora-server)
 - [Docker](#docker)
    - [Prebuilt images](#prebuilt-images)
@@ -106,6 +107,10 @@ As it interacts with `mosquitto`, it makes use of `cgo`. Also, it (optionally) u
 
 *Important*: as of 23/05/2025, or May 23, 2025, I've switched Go cache backing package to https://github.com/jellydator/ttlcache, which makes use of generics.
 Following this change, I've bumped Go version to 1.24.3 and might explore opportunities to refactor code using additions since the last set version in this lib which was 1.18.
+
+> **Note when upgrading to v3.5.0**
+>
+> Mosquitto is upgraded from 2.0.22 to 2.1.2. Mosquitto 2.1.0 changed the default of `allow_duplicate_messages` to `true`, so clients with overlapping subscriptions (e.g. `topic/test` and `topic/#`) now get one delivery per matching filter. Add `allow_duplicate_messages false` to `mosquitto.conf` to keep the 2.0.x behaviour. See the [Mosquitto 2.1.0 ChangeLog](https://github.com/eclipse-mosquitto/mosquitto/blob/master/ChangeLog.txt).
 
 
 ### Build
@@ -1663,6 +1668,31 @@ Notice the `password` will be passed to the script as given by `mosquitto`, leav
 #### Testing Javascript
 
 This backend has no special requirements as `javascript` test files are provided to test different scenarios.
+
+### Telemetry
+
+The plugin can export OpenTelemetry traces and metrics over OTLP/gRPC. It is **off by default**; nothing is exported unless at least one of the standard activation environment variables is set:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
+- `OTEL_SERVICE_NAME`
+
+`OTEL_SDK_DISABLED=true` forces everything off. All other OTLP settings (protocol, headers, sampling, export interval, resource attributes, …) are read from the OpenTelemetry Go SDK; the plugin introduces no project-specific config keys.
+
+Tracing covers `authUnpwdCheck`, `authAclCheck`, and each per-backend call; logrus entries inside a span get `trace_id` / `span_id` fields added automatically.
+
+#### Metrics
+
+| Name | Kind | Unit | Attributes |
+|---|---|---|---|
+| `auth.unpwd_check.duration` | histogram | `s` | `auth.result` |
+| `auth.acl_check.duration` | histogram | `s` | `auth.result` |
+| `backend.call.duration` | histogram | `s` | `backend.name`, `backend.op`, `backend.result` |
+| `auth.cache.hits` | counter | `{hit}` | `auth.kind` (`unpwd` / `acl`) |
+| `auth.cache.misses` | counter | `{miss}` | `auth.kind` (`unpwd` / `acl`) |
+
+`*.result` labels are `granted` / `rejected` / `error`. Histograms automatically emit `_count` and `_sum`, so throughput is derivable from `auth.unpwd_check.duration_count`.
 
 ### Using with LoRa Server
 
