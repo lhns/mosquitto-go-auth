@@ -14,6 +14,7 @@ env:
 jobs:
   mosq_1:
     name: Build and publish with Mosquitto version 1.x
+    if: github.ref != 'refs/heads/debug/revert-mosquitto-upgrade'
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -120,9 +121,18 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:master${{ format('{0}{1}', env.MOSQUITTO_VERSION_SUFFIX, env.MOSQUITTO_VERSION_2) }}
             ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:master
-      
+
+      - name: Build and push debug branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/debug/revert-mosquitto-upgrade'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ env.DOCKERHUB_REPO }}:debug-no-mosq-bump
+
       - name: Build on push
-        if: github.event_name == 'push' && github.ref != 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref != 'refs/heads/master' && github.ref != 'refs/heads/debug/revert-mosquitto-upgrade'
         uses: docker/build-push-action@v7
         with:
           context: .
