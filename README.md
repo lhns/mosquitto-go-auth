@@ -10,7 +10,12 @@ The name is terrible, I know, but it's too late to change it. And, you know: nam
 
 > **Note when upgrading to v3.5.0**
 >
-> Mosquitto is upgraded from 2.0.22 to 2.1.2. Mosquitto 2.1.0 changed the default of `allow_duplicate_messages` to `true`, so clients with overlapping subscriptions (e.g. `topic/test` and `topic/#`) now get one delivery per matching filter. Add `allow_duplicate_messages false` to `mosquitto.conf` to keep the 2.0.x behaviour. See the [Mosquitto 2.1.0 ChangeLog](https://github.com/eclipse-mosquitto/mosquitto/blob/master/ChangeLog.txt).
+> Mosquitto is upgraded from 2.0.22 to 2.1.2. Two behaviours to watch for:
+>
+> - Mosquitto 2.1.0 changed the default of `allow_duplicate_messages` to `true`, so clients with overlapping subscriptions (e.g. `topic/test` and `topic/#`) now get one delivery per matching filter. Add `allow_duplicate_messages false` to `mosquitto.conf` to keep the 2.0.x behaviour.
+> - Client IDs containing `/`, `+`, or `#` are now rejected at ACL check as "dangerous" (see [CVE-2017-7650](https://mosquitto.org/blog/2017/05/security-advisory-cve-2017-7650/)); this check did not fire on the external-plugin ACL path in 2.0.x. Use `-` or `_` instead.
+>
+> See the [Mosquitto 2.1.0 ChangeLog](https://github.com/eclipse-mosquitto/mosquitto/blob/master/ChangeLog.txt).
 
 ### Project Status
 
