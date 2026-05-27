@@ -284,14 +284,14 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		return false, err
 	}
 
+	defer resp.Body.Close()
+
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
 		log.Errorf("read error: %s", err)
 		return false, err
 	}
-
-	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Infof("error code: %d", resp.StatusCode)
