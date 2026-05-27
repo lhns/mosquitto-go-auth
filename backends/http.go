@@ -151,6 +151,8 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 	if !http.VerifyPeer {
 		tr := &h.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			MaxIdleConns:    100,
+			IdleConnTimeout: 90 * time.Second,
 		}
 		http.Client.Transport = tr
 	}

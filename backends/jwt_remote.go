@@ -166,6 +166,8 @@ func NewRemoteJWTChecker(authOpts map[string]string, options tokenOptions, versi
 	if !checker.verifyPeer {
 		tr := &h.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			MaxIdleConns:    100,
+			IdleConnTimeout: 90 * time.Second,
 		}
 		checker.client.Transport = tr
 	}
@@ -302,15 +304,17 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", o.userAgent)
 	default:
-		req, err = h.NewRequest(o.httpMethod, fullURI, strings.NewReader(urlValues.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Content-Length", strconv.Itoa(len(urlValues.Encode())))
-		req.Header.Set("User-Agent", o.userAgent)
+		formEncoded := urlValues.Encode()
+		req, err = h.NewRequest(o.httpMethod, fullURI, strings.NewReader(formEncoded))
 
 		if err != nil {
 			log.Errorf("req error: %s", err)
 			return false, err
 		}
+
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Content-Length", strconv.Itoa(len(formEncoded)))
+		req.Header.Set("User-Agent", o.userAgent)
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))

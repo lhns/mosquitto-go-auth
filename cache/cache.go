@@ -175,7 +175,7 @@ func (s *redisStore) Connect(ctx context.Context, reset bool) bool {
 }
 
 func (s *goStore) Close() {
-	//TODO: support serializing cache for re hydration.
+	s.client.Stop()
 }
 
 func (s *redisStore) Close() {
