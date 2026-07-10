@@ -208,7 +208,7 @@ func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime
 		return false, false
 	}
 
-	return present, item.Value()
+	return true, item.Value()
 }
 
 // CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
