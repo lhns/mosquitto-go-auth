@@ -196,16 +196,16 @@ func (s *goStore) CheckACLRecord(ctx context.Context, username, topic, clientid 
 
 func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime time.Duration) (bool, bool) {
 	var item *ttlcache.Item[string, bool]
-	present := s.client.Has(record)
-
-	if !present {
-		return false, false
-	}
 
 	if !s.refreshExpiration {
 		item = s.client.Get(record, ttlcache.WithDisableTouchOnHit[string, bool]())
 	} else {
 		item = s.client.Get(record)
+	}
+
+	// Get returns nil when the key is absent or expired
+	if item == nil {
+		return false, false
 	}
 
 	return present, item.Value()
