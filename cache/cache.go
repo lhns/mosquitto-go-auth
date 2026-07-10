@@ -196,11 +196,6 @@ func (s *goStore) CheckACLRecord(ctx context.Context, username, topic, clientid 
 
 func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime time.Duration) (bool, bool) {
 	var item *ttlcache.Item[string, bool]
-	present := s.client.Has(record)
-
-	if !present {
-		return false, false
-	}
 
 	if !s.refreshExpiration {
 		item = s.client.Get(record, ttlcache.WithDisableTouchOnHit[string, bool]())
@@ -208,7 +203,12 @@ func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime
 		item = s.client.Get(record)
 	}
 
-	return present, item.Value()
+	// Get returns nil when the key is absent or expired
+	if item == nil {
+		return false, false
+	}
+
+	return true, item.Value()
 }
 
 // CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
