@@ -1,0 +1,14 @@
+services:
+  mosquitto:
+    image: ghcr.io/lhns/mosquitto-go-auth:latest
+    restart: always
+    volumes:
+      - # ./mosquitto.conf:/etc/mosquitto/mosquitto.conf
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    environment:
+      HOME: /mosquitto
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
