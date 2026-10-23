@@ -31,7 +31,7 @@ jobs:
             -e MOSQUITTO_VERSION=${{ env.MOSQUITTO_VERSION }} \
             -v ${{ github.workspace }}:/usr/src \
             -w /usr/src \
-            golang:1.25-bookworm \
+            golang:1.26-bookworm \
             /usr/src/mosquitto-go-auth/.github/workflows/scripts/build.sh
       - name: zip
         run: |
