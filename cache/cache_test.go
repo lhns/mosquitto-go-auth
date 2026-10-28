@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -156,6 +158,41 @@ func TestGoStore(t *testing.T) {
 
 	assert.True(t, present)
 	assert.True(t, granted)
+}
+
+func TestRedisKeyNamespace(t *testing.T) {
+	store := NewSingleRedisStore("localhost", "6379", "", 3, time.Minute, time.Minute, 0, 0, false)
+	ctx := context.Background()
+	assert.True(t, store.Connect(ctx, false))
+	defer store.Close()
+
+	assert.NoError(t, store.SetAuthRecord(ctx, "u", "p", "true"))
+	assert.NoError(t, store.SetACLRecord(ctx, "u", "t/1", "c", 1, "true"))
+
+	keys := []string{
+		"mga:v5:auth:9ba19bc012f5c559a7d579590a5a2eef1f3de7db8c95ed6bb22ed0f676570b71",
+		"mga:v5:acl:f8af8bf8397413ae2f2a9407d952a2ee4997082a37da0d3137fa5acad5aa6a89",
+	}
+	for _, k := range keys {
+		v, err := store.client.Get(ctx, k).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, "true", v)
+	}
+}
+
+func TestRedisLegacyKeyIsMiss(t *testing.T) {
+	store := NewSingleRedisStore("localhost", "6379", "", 3, time.Minute, time.Minute, 0, 0, false)
+	ctx := context.Background()
+	assert.True(t, store.Connect(ctx, false))
+	defer store.Close()
+
+	// A key as written by earlier versions: base64 of the text plus a 20 byte digest.
+	empty := sha1.Sum(nil)
+	legacy := base64.StdEncoding.EncodeToString(append([]byte("auth-legacy-user-legacy-pass"), empty[:]...))
+	assert.NoError(t, store.client.Set(ctx, legacy, "true", time.Minute).Err())
+
+	present, _ := store.CheckAuthRecord(ctx, "legacy-user", "legacy-pass")
+	assert.False(t, present)
 }
 
 func TestRedisSingleStore(t *testing.T) {
