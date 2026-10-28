@@ -143,7 +143,8 @@ func (h pbkdf2Hasher) Compare(password string, passwordHash string) bool {
 			return false
 		}
 		saltField = fields[2]
-		stored, err = base64.RawStdEncoding.DecodeString(fields[3])
+		// Padding is accepted on the checksum, as before; the length is still checked against l.
+		stored, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(fields[3], "="))
 		if err != nil {
 			log.Errorf("invalid PBKDF2 hash supplied, bad key encoding")
 			return false

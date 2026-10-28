@@ -66,6 +66,8 @@ func TestPBKDF2Compare(t *testing.T) {
 		{"legacy utf8 salt", utf8, "PBKDF2$sha512$1000$salt$" + k512},
 		// An unknown algorithm label uses SHA-512, as before.
 		{"legacy unknown algorithm", b64, "PBKDF2$md5$1000$c2FsdA==$" + k512},
+		// Padding on the PHC checksum was accepted before, so it still is.
+		{"phc padded key", b64, "pbkdf2-sha512$i=1000,l=32$c2FsdA$" + k512},
 		{"phc raw base64", b64, "pbkdf2-sha512$i=1000,l=32$c2FsdA$" + raw512},
 		{"phc parameters swapped", b64, "pbkdf2-sha512$l=32,i=1000$c2FsdA$" + raw512},
 		{"phc key 64", b64, "pbkdf2-sha512$i=1000,l=64$c2FsdA$" + raw512l64},
@@ -104,6 +106,7 @@ func TestPBKDF2Compare(t *testing.T) {
 		"phc iterations zero":         "pbkdf2-sha512$i=0,l=32$c2FsdA$" + raw512,
 		"legacy unpadded key":         "PBKDF2$sha512$1000$c2FsdA==$" + raw512,
 		"legacy bad salt":             "PBKDF2$sha512$1000$!!!$" + k512,
+		"phc checksum bad first char": "pbkdf2-sha512$i=1000,l=64$c2FsdA$-AAAAAAA", // not accepted by the raw decoder
 		"legacy missing field":        "PBKDF2$sha512$1000$c2FsdA==",
 		"legacy empty key":            "PBKDF2$sha512$1000$c2FsdA==$",
 		"unknown format":              "$argon2id$v=19$m=64,t=1,p=1$c2FsdHNhbHQ$q8xf6lwhDBCcgC3rk+NDxXxW7kzMEwhauOIJ+P8uReY",
