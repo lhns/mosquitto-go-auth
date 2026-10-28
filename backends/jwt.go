@@ -128,6 +128,15 @@ func (o *JWT) GetName() string {
 	return o.name
 }
 
+// Reload reloads the checker when it supports it (the files mode).
+func (o *JWT) Reload() error {
+	if r, ok := o.checker.(interface{ Reload() error }); ok {
+		return r.Reload()
+	}
+
+	return nil
+}
+
 // Halt closes any db connection.
 func (o *JWT) Halt() {
 	o.checker.Halt()

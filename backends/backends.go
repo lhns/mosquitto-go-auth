@@ -617,6 +617,16 @@ func (b *Backends) checkSuperuserThenACL(ctx context.Context, username, topic, c
 	return false, err
 }
 
+// Reload asks each backend that can reload its data (files, JWT files mode) to do it.
+// A failed reload is logged by the backend and does not stop the others.
+func (b *Backends) Reload() {
+	for _, v := range b.backends {
+		if r, ok := v.(interface{ Reload() error }); ok {
+			_ = r.Reload()
+		}
+	}
+}
+
 func (b *Backends) Halt() {
 	// Halt every registered backend.
 	for _, v := range b.backends {

@@ -486,6 +486,17 @@ func AuthPskKeyGet() bool {
 	return true
 }
 
+// AuthPluginReload runs when the broker reloads its configuration (SIGHUP). It reloads the data of
+// the backends that support it. It does not halt anything.
+//
+//export AuthPluginReload
+func AuthPluginReload() {
+	if b, ok := authPlugin.backends.(interface{ Reload() }); ok {
+		log.Debugln("broker reload: reloading backends")
+		b.Reload()
+	}
+}
+
 //export AuthPluginCleanup
 func AuthPluginCleanup() {
 	log.Info("Cleaning up plugin")

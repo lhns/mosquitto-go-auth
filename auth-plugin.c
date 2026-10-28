@@ -64,6 +64,10 @@ int mosquitto_auth_plugin_cleanup(void *user_data, struct mosquitto_auth_opt *au
 }
 
 int mosquitto_auth_security_init(void *user_data, struct mosquitto_auth_opt *auth_opts, int auth_opt_count, bool reload) {
+  // The broker calls security_cleanup and then security_init with reload=true on SIGHUP.
+  if (reload) {
+    AuthPluginReload();
+  }
   return MOSQ_ERR_SUCCESS;
 }
 
