@@ -100,7 +100,8 @@ func NewMongo(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		m.AclsCollection = aclsCollection
 	}
 
-	if authOpts["mongo_use_tls"] == "true" {
+	// mongo_use_tls is the old name of mongo_with_tls.
+	if authOpts["mongo_with_tls"] == "true" || authOpts["mongo_use_tls"] == "true" {
 		m.withTLS = true
 	}
 
