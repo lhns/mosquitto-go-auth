@@ -586,11 +586,13 @@ Individual backends have their options described in the sections below.
 As of now every backend has proper but really ugly tests in place: they expect services running for each backend, and are also pretty outdated and cumbersome to work with in general.
 This issue captures these concerns and a basic plan to refactor tests: <https://github.com/iegomez/mosquitto-go-auth/issues/67>.
 
-You may run all tests (see Testing X for each backend's testing requirements) like this:
+`make test` runs the default suite. It does not need external services:
 
 ```
 make test
 ```
+
+`make test-integration` runs all tests, also the tests that need the backend services and the generated certificates (see Testing X for each backend's testing requirements). `run-test-in-docker.sh` starts these services and runs it.
 
 ### Registering checks
 
@@ -1545,7 +1547,9 @@ You can build your plugin with:
 
 `go build -buildmode=plugin`
 
-Check the plugin directory for dummy example and makefile.
+Check the plugin directory for dummy example and makefile. The example has the `customplugin` build tag, so build it with:
+
+`go build -tags customplugin -buildmode=plugin -o plugin.so .`
 
 #### Testing Custom
 
@@ -1823,7 +1827,7 @@ docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.s
 You may even specify the command to run after backends are started, which allow
 to run only some tests or even get a shell inside the containers:
 ```
-docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh make test-backends
+docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh make test-integration
 
 docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh bash
 ```
