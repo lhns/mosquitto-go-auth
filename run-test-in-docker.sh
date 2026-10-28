@@ -189,7 +189,7 @@ export PATH=$PATH:/usr/local/go/bin
 set -x
 
 if [ "$#" -eq 0 ]; then
-    make test
+    make test-integration
 else
     exec "$@"
 fi
