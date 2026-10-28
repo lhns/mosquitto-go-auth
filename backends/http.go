@@ -31,6 +31,7 @@ type HTTP struct {
 	Timeout       int
 	Client        *h.Client
 	CustomHeaders map[string]string
+	hideToken     bool // a jwt backend is configured: the username can be a token
 }
 
 type HTTPResponse struct {
@@ -282,6 +283,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 	resp, err = o.Client.Do(req)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Errorf("http request error: %s", err)
 		return false, err
 	}
@@ -291,6 +293,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Errorf("read error: %s", err)
 		return false, err
 	}
@@ -307,7 +310,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: %s", string(body))
+			log.Infof("api error: %s", hideText(o.hideToken, string(body), username))
 			return false, nil
 		}
 
@@ -323,13 +326,13 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			log.Infof("api error: %s", response.Error)
+			log.Infof("api error: %s", hideText(o.hideToken, response.Error, username))
 			return false, nil
 		}
 
 	}
 
-	log.Debugf("http request approved for %s", username)
+	log.Debugf("http request approved for %s", logUsername(o.hideToken, username))
 	return true, nil
 
 }

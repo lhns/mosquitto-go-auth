@@ -215,3 +215,114 @@ func TestRedaction_SQLErrorEcho(t *testing.T) {
 		})
 	}
 }
+
+// A driver may cut the error text: a part of a long username is then hidden by replacing the text.
+func TestRedaction_HideTokenTruncated(t *testing.T) {
+	token := strings.Repeat("abcdefgh", 8)
+
+	// Whole token: replaced, the rest stays.
+	err := hideToken(true, errors.New("bad value "+token+" here"), token)
+	require.EqualError(t, err, "bad value <hidden> here")
+
+	// Cut-off token: the whole text goes.
+	err = hideToken(true, errors.New("bad value "+token[:40]), token)
+	require.EqualError(t, err, hiddenErrorText)
+	require.NotContains(t, err.Error(), token[:16])
+
+	// Short username, only a prefix: the text is kept.
+	err = hideToken(true, errors.New("bad value abcdefgh"), "abcdefghijklmnopqrstuvwxyz")
+	require.EqualError(t, err, "bad value abcdefgh")
+
+	// Whole token and a cut-off copy (a message that quotes the value twice): the whole text goes.
+	err = hideToken(true, errors.New("bad value "+token+" near "+token[:40]), token)
+	require.EqualError(t, err, hiddenErrorText)
+
+	// Without a jwt backend nothing changes.
+	err = hideToken(false, errors.New("bad value "+token[:40]), token)
+	require.EqualError(t, err, "bad value "+token[:40])
+}
+
+// The reply of an http auth server that echoes the username is logged without it.
+func TestRedaction_HTTPAPIErrorLog(t *testing.T) {
+	replies := map[string]string{
+		"text": "unknown user " + sentinelToken,
+		"json": `{"ok":false,"error":"unknown user ` + sentinelToken + `"}`,
+	}
+	for mode, reply := range replies {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(reply))
+		}))
+		t.Cleanup(srv.Close)
+
+		for _, hide := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/hide=%t", mode, hide), func(t *testing.T) {
+				o := httpForRedaction(t, srv.URL, hide)
+				o.ResponseMode = mode
+				hook := captureDebugLogs(t)
+				ok, err := o.GetUser(sentinelToken, "pw", "cid")
+				require.NoError(t, err)
+				require.False(t, ok)
+				require.Equal(t, !hide, logsContain(hook, sentinelToken))
+			})
+		}
+	}
+}
+
+func httpForRedaction(t *testing.T, srvURL string, hide bool) HTTP {
+	t.Helper()
+	hostPort := strings.TrimPrefix(srvURL, "http://")
+	i := strings.LastIndex(hostPort, ":")
+	return HTTP{
+		Host: hostPort[:i], Port: hostPort[i+1:], ParamsMode: "json", httpMethod: http.MethodPost,
+		ResponseMode: "status", Client: &http.Client{Timeout: 2 * time.Second}, hideToken: hide,
+	}
+}
+
+// The approval log of the http backend shows the username only without a jwt backend.
+func TestRedaction_HTTPApprovalLog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(srv.Close)
+
+	for _, hide := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
+			o := httpForRedaction(t, srv.URL, hide)
+			hook := captureDebugLogs(t)
+			ok, err := o.GetUser(sentinelToken, "pw", "cid")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, !hide, logsContain(hook, sentinelToken))
+		})
+	}
+}
+
+// A request error of the http backend that quotes the URL does not contain the username.
+func TestRedaction_HTTPRequestError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close() // nothing listens any more
+
+	for _, hide := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
+			o := httpForRedaction(t, srv.URL, hide)
+			hook := captureDebugLogs(t)
+			_, err := o.httpRequest("/user?u="+sentinelToken, sentinelToken, map[string]interface{}{}, nil)
+			require.Error(t, err)
+			require.Equal(t, !hide, strings.Contains(err.Error(), sentinelToken))
+			require.Equal(t, !hide, logsContain(hook, sentinelToken))
+		})
+	}
+}
+
+// The remote JWT backend does not leak the token through a request error, even when the URL holds it.
+func TestRedaction_RemoteJWTRequestError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	host := strings.TrimPrefix(srv.URL, "http://")
+	srv.Close()
+	b := remoteJWTForRedaction(t, map[string]string{"jwt_host": host, "jwt_getuser_uri": "/user?t=" + sentinelToken})
+	hook := captureDebugLogs(t)
+
+	ok, err := b.GetUser(sentinelToken, "", "cid")
+	require.False(t, ok)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), sentinelToken)
+	require.False(t, logsContain(hook, sentinelToken))
+}

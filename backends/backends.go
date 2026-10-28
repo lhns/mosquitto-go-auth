@@ -18,6 +18,15 @@ import (
 // hiddenUsername stands for a username that must not appear in logs and errors.
 const hiddenUsername = "<hidden>"
 
+const (
+	// hiddenErrorText replaces an error text that holds a cut-off username.
+	hiddenErrorText = "error (text hidden: it may contain the username)"
+	// An error with the first truncatedTokenPrefixLen characters of a username of at least
+	// truncatedTokenMinLen characters, but not the whole username, is taken for a truncated one.
+	truncatedTokenMinLen    = 32
+	truncatedTokenPrefixLen = 16
+)
+
 type Backend interface {
 	GetUser(username, password, clientid string) (bool, error)
 	GetSuperuser(username string) (bool, error)
@@ -210,7 +219,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[httpBackend] = beIface.(HTTP)
+				be := beIface.(HTTP)
+				be.hideToken = b.jwtConfigured
+				b.backends[httpBackend] = be
 			}
 		case sqliteBackend:
 			beIface, err = NewSqlite(authOpts, logLevel, hasher)
@@ -323,11 +334,30 @@ func (b *Backends) setCheckers(authOpts map[string]string) error {
 // hideToken replaces the username in the text of an error. With a jwt backend the username can be
 // a token, and a database or directory error can quote it (for example the cast error of a uuid column).
 // Without a jwt backend the error is returned unchanged.
+//
+// A driver may cut the text of an error (MySQL limits messages to 512 bytes), which leaves a part of
+// a long username that the exact match misses. Then the text is replaced as a whole.
 func hideToken(hide bool, err error, username string) error {
-	if !hide || err == nil || username == "" || !strings.Contains(err.Error(), username) {
+	if !hide || err == nil || username == "" {
 		return err
 	}
-	return errors.New(strings.ReplaceAll(err.Error(), username, hiddenUsername))
+	if text := hideText(true, err.Error(), username); text != err.Error() {
+		return errors.New(text)
+	}
+	return err
+}
+
+// hideText is hideToken for a text, such as the reply of an auth server. The whole username is
+// replaced first; a cut-off copy that is left (a text can quote the value twice) hides the whole text.
+func hideText(hide bool, text, username string) string {
+	if !hide || username == "" {
+		return text
+	}
+	text = strings.ReplaceAll(text, username, hiddenUsername)
+	if len(username) >= truncatedTokenMinLen && strings.Contains(text, username[:truncatedTokenPrefixLen]) {
+		return hiddenErrorText
+	}
+	return text
 }
 
 // logUsername returns the username for debug logs, or a placeholder when hide is set.

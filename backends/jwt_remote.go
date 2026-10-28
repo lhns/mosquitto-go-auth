@@ -322,6 +322,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	resp, err = o.client.Do(req)
 
 	if err != nil {
+		err = hideToken(true, err, token)
 		log.Errorf("error: %v", err)
 		return false, err
 	}
@@ -331,6 +332,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
+		err = hideToken(true, err, token)
 		log.Errorf("read error: %s", err)
 		return false, err
 	}
@@ -386,7 +388,7 @@ func (o *remoteJWTChecker) getHost(token string) (string, error) {
 
 	iss, err := getIssForToken(o.options, token, o.options.skipUserExpiration)
 	if err != nil {
-		errorString := fmt.Sprintf("cannot obtain host for the authorization request from token %s: %s", hiddenUsername, err)
+		errorString := fmt.Sprintf("cannot obtain host for the authorization request from token %s: %s", hiddenUsername, hideToken(true, err, token))
 		return "", errors.New(errorString)
 	}
 
