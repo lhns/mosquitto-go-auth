@@ -1687,6 +1687,8 @@ The plugin can export OpenTelemetry traces and metrics over OTLP/gRPC. It is **o
 
 Tracing covers `authUnpwdCheck`, `authAclCheck`, and each per-backend call; logrus entries inside a span get `trace_id` / `span_id` fields added automatically.
 
+When the `jwt` backend is configured, the username can be a token. Then the spans do not have the `auth.username` attribute, and the debug logs show `<hidden>` in place of the username. When `use_clientid_as_username` is also set, the client ID carries the token, so the spans do not have the `auth.client_id` attribute either. The broker itself logs the username and client ID of each new connection; set `connection_messages false` in the mosquitto configuration to stop this.
+
 #### Metrics
 
 | Name | Kind | Unit | Attributes |
