@@ -20,7 +20,7 @@ func TestCacheDeadline(t *testing.T) {
 	Convey("CacheDeadline should give the exp of a JWT", t, func() {
 		exp := time.Now().Add(time.Hour).Truncate(time.Second)
 		token := sign(jwtGo.MapClaims{"username": "test", "exp": exp.Unix()})
-		b := &Backends{backends: map[string]Backend{jwtBackend: &JWT{}}}
+		b := &Backends{backends: map[string]Backend{jwtBackend: &JWT{}}, jwtMode: localMode}
 
 		for _, acl := range []bool{false, true} {
 			deadline, capped := b.CacheDeadline(token, acl)
@@ -51,10 +51,33 @@ func TestCacheDeadline(t *testing.T) {
 			So(capped, ShouldBeTrue)
 			So(deadline.Equal(exp), ShouldBeTrue)
 
+			// The JWT library truncates a fractional exp to the second, which can only end the cache earlier.
 			payload = base64.RawURLEncoding.EncodeToString([]byte(`{"exp":1700000000.5}`))
 			deadline, capped = b.CacheDeadline(header+"."+payload+".c2ln", true)
 			So(capped, ShouldBeTrue)
-			So(deadline.Equal(time.Unix(1700000000, 5e8)), ShouldBeTrue)
+			So(deadline.Equal(time.Unix(1700000000, 0)), ShouldBeTrue)
+		})
+
+		Convey("A token with an undecodable header should still be capped", func() {
+			payload := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, exp.Unix())))
+			deadline, capped := b.CacheDeadline("!!!."+payload+".c2ln", true)
+			So(capped, ShouldBeTrue)
+			So(deadline.Equal(exp), ShouldBeTrue)
+		})
+
+		Convey("A payload with exp and EXP should be capped at the real exp", func() {
+			// A case-insensitive JSON decoder would take the last key, the JWT library takes "exp".
+			raw := func(payload string) string {
+				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
+			}
+			for _, payload := range []string{
+				fmt.Sprintf(`{"exp":%d,"EXP":4102444800}`, exp.Unix()),
+				fmt.Sprintf(`{"EXP":4102444800,"exp":%d}`, exp.Unix()),
+			} {
+				deadline, capped := b.CacheDeadline(raw(payload), true)
+				So(capped, ShouldBeTrue)
+				So(deadline.Equal(exp), ShouldBeTrue)
+			}
 		})
 
 		Convey("There should be no cap for a username that is not a JWT or a JWT without a valid exp", func() {
@@ -62,7 +85,7 @@ func TestCacheDeadline(t *testing.T) {
 				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
 			}
 			for _, username := range []string{"alice", "", "a.b.c", "a.b", sign(jwtGo.MapClaims{"username": "test"}),
-				raw(`{"exp":-1}`), raw(`{"exp":1e300}`), raw(`{"exp":true}`), raw(`{"exp":null}`), raw(`not json`)} {
+				raw(`{"exp":true}`), raw(`{"exp":null}`), raw(`not json`)} {
 				_, capped := b.CacheDeadline(username, true)
 				So(capped, ShouldBeFalse)
 			}
@@ -73,18 +96,22 @@ func TestCacheDeadline(t *testing.T) {
 			So(capped, ShouldBeFalse)
 		})
 
-		Convey("The skip options should remove the cap only when the checks skip the expiration", func() {
+		Convey("The skip options should remove the cap only in local and files mode", func() {
 			tests := []struct {
+				mode                  string
 				skipUser, skipACL     bool
 				userCapped, aclCapped bool
 			}{
-				{false, false, true, true},
-				{true, false, false, true},
-				{false, true, true, true},
-				{true, true, false, false},
+				{localMode, false, false, true, true},
+				{localMode, true, false, false, true},
+				{localMode, false, true, true, true},
+				{localMode, true, true, false, false},
+				{filesMode, true, true, false, false},
+				{remoteMode, true, true, true, true},
+				{jsMode, true, true, true, true},
 			}
 			for _, test := range tests {
-				b := &Backends{backends: map[string]Backend{jwtBackend: &JWT{}}, jwtSkipUserExp: test.skipUser, jwtSkipACLExp: test.skipACL}
+				b := &Backends{backends: map[string]Backend{jwtBackend: &JWT{}}, jwtMode: test.mode, jwtSkipUserExp: test.skipUser, jwtSkipACLExp: test.skipACL}
 				_, capped := b.CacheDeadline(token, false)
 				So(capped, ShouldEqual, test.userCapped)
 				_, capped = b.CacheDeadline(token, true)
