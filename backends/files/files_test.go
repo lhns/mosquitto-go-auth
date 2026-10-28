@@ -76,19 +76,19 @@ func TestFiles(t *testing.T) {
 		generalDeniedTopic := "test/general_denied"
 
 		Convey("All users but not present ones should have a record", func() {
-			_, ok := files.users[user1]
+			_, ok := files.Users()[user1]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user2]
+			_, ok = files.Users()[user2]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user3]
+			_, ok = files.Users()[user3]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user4]
+			_, ok = files.Users()[user4]
 			So(ok, ShouldBeFalse)
 
-			_, ok = files.users[elton]
+			_, ok = files.Users()[elton]
 			So(ok, ShouldBeTrue)
 		})
 
@@ -182,11 +182,11 @@ func TestFiles(t *testing.T) {
 		deniedTopic := "test/denied"
 
 		Convey("Topics for non existing users should be ignored when there's a passwords file", func() {
-			for record := range files.aclRecords {
+			for record := range files.snap.Load().aclRecords {
 				So(record, ShouldNotEqual, "test/not_present")
 			}
 
-			for _, user := range files.users {
+			for _, user := range files.Users() {
 				for record := range user.aclRecords {
 					So(record, ShouldNotEqual, "test/not_present")
 				}
@@ -342,14 +342,14 @@ func TestFiles(t *testing.T) {
 		files, err := NewChecker(backendsOpt, pwPath, aclPath, log.DebugLevel, hasher)
 		So(err, ShouldBeNil)
 
-		user, ok := files.users[user1]
+		user, ok := files.Users()[user1]
 		So(ok, ShouldBeTrue)
 
 		record := user.aclRecords[0]
 		So(record.acc, ShouldEqual, MOSQ_ACL_READ)
 		So(record.topic, ShouldEqual, "test/#")
 
-		_, ok = files.users[user2]
+		_, ok = files.Users()[user2]
 		So(ok, ShouldBeFalse)
 
 		// Now add second user and reload.
@@ -362,7 +362,7 @@ func TestFiles(t *testing.T) {
 
 		time.Sleep(200 * time.Millisecond)
 
-		user, ok = files.users[user2]
+		user, ok = files.Users()[user2]
 		So(ok, ShouldBeTrue)
 
 		record = user.aclRecords[0]
