@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 	"github.com/iegomez/mosquitto-go-auth/telemetry"
 	"github.com/pkg/errors"
@@ -81,6 +82,8 @@ var allowedBackendsOptsPrefix = map[string]string{
 
 // Initialize sets general options, tries to build the backends and register their checkers.
 func Initialize(authOpts map[string]string, logLevel log.Level, version string) (*Backends, error) {
+	// Set the plugin-wide ACL options before any check.
+	topics.SetOptions(authOpts)
 
 	b := &Backends{
 		backends:          make(map[string]Backend),
