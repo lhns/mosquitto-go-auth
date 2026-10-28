@@ -18,6 +18,8 @@ type CustomPlugin struct {
 }
 
 func NewCustomPlugin(authOpts map[string]string, logLevel log.Level) (*CustomPlugin, error) {
+	log.SetLevel(logLevel)
+
 	plug, err := plugin.Open(authOpts["plugin_path"])
 	if err != nil {
 		return nil, fmt.Errorf("could not init custom plugin: %s", err)
