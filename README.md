@@ -417,6 +417,15 @@ auth_opt_hasher_memory 4096            # amount of memory (in kibibytes) to use
 auth_opt_hasher_parallelism 2          # degree of parallelism (i.e. number of threads)
 ```
 
+##### Stored hash validation
+
+A stored `PBKDF2` or `Argon2ID` hash must be well formed, or the password check fails. All fields must be present, and the key must decode to the stored key length (`l` in the `pbkdf2-sha512$...` format). The plugin also refuses a stored hash that is outside these limits, before it does any key derivation:
+
+- the whole hash is longer than 4096 bytes,
+- the key or the salt is longer than 512 bytes,
+- `PBKDF2` uses fewer than 1 or more than 5000000 iterations,
+- `Argon2ID` uses more than 1 GiB of memory (`m` over 1048576), fewer than 1 or more than 32 iterations, or a parallelism of less than 1 or more than 64.
+
 **These options may be defined for each backend that needs a hasher by prepending the backend's name to the option, e.g. for setting `argon2id` as `Postgres'` hasher**:
 
 ```

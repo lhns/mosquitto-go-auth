@@ -33,6 +33,11 @@ func NewArgon2IDHasher(saltSize int, iterations int, keylen int, memory uint32, 
 
 // Hash generates a hashed password using Argon2ID.
 func (h argon2IDHasher) Hash(password string) (string, error) {
+	// The library panics on these values.
+	if h.iterations < 1 || h.parallelism < 1 || h.keyLen < 0 {
+		return "", errors.New("invalid argon2id parameters")
+	}
+
 	salt := make([]byte, h.saltSize)
 	_, err := rand.Read(salt)
 	if err != nil {
@@ -43,58 +48,86 @@ func (h argon2IDHasher) Hash(password string) (string, error) {
 }
 
 // Compare checks that an argon2 generated password matches the password hash.
+// A stored hash that is malformed or outside the limits (see maxArgon2Memory
+// and the related constants) is refused before any key derivation.
 func (h argon2IDHasher) Compare(password string, passwordHash string) bool {
-	hashSplit := strings.Split(passwordHash, "$")
-
-	if len(hashSplit) != 6 {
-		log.Errorf("invalid hash supplied, expected 6 elements, got: %d", len(hashSplit))
+	if len(passwordHash) > maxEncodedHashLen {
+		log.Errorf("invalid argon2id hash supplied, too long")
 		return false
 	}
 
-	if hashSplit[1] != "argon2id" {
+	hashSplit := strings.Split(passwordHash, "$")
+
+	if len(hashSplit) != 6 {
+		log.Errorf("invalid argon2id hash supplied, unexpected number of elements")
+		return false
+	}
+
+	if hashSplit[0] != "" || hashSplit[1] != "argon2id" {
 		log.Errorf("unknown hash format")
 		return false
 	}
 
-	version, err := strconv.ParseInt(strings.TrimPrefix(hashSplit[2], "v="), 10, 32)
-	if err != nil {
-		log.Errorf("argon2id version parse error: %s", err)
+	version, err := strconv.ParseUint(strings.TrimPrefix(hashSplit[2], "v="), 10, 32)
+	if err != nil || !strings.HasPrefix(hashSplit[2], "v=") {
+		log.Errorf("argon2id version parse error")
 		return false
 	}
 
 	if version != argon2.Version {
-		log.Errorf("unknown argon2id version: %d", version)
+		log.Errorf("unknown argon2id version")
 		return false
 	}
 
-	var memory, iterations uint32
-	var parallelism uint8
-	_, err = fmt.Sscanf(hashSplit[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism)
-	if err != nil {
-		log.Errorf("argon2id parameters parse error: %s", err)
+	params := strings.Split(hashSplit[3], ",")
+	if len(params) != 3 {
+		log.Errorf("argon2id parameters parse error")
 		return false
 	}
+	var values [3]uint64
+	for i, name := range [3]string{"m=", "t=", "p="} {
+		bits := 32
+		if name == "p=" {
+			bits = 8
+		}
+		values[i], err = strconv.ParseUint(strings.TrimPrefix(params[i], name), 10, bits)
+		if err != nil || !strings.HasPrefix(params[i], name) {
+			log.Errorf("argon2id parameters parse error")
+			return false
+		}
+	}
+	memory, iterations, parallelism := uint32(values[0]), uint32(values[1]), uint8(values[2]) //nolint:gosec // ParseUint limited each value to 32 or 8 bits
 
 	salt, err := base64.RawStdEncoding.DecodeString(hashSplit[4])
 	if err != nil {
-		log.Errorf("base64 salt error: %s", err)
+		log.Errorf("invalid argon2id hash supplied, bad salt encoding")
 		return false
 	}
 
 	extractedHash, err := base64.RawStdEncoding.DecodeString(hashSplit[5])
 	if err != nil {
-		log.Errorf("argon2id decoding error: %s", err)
+		log.Errorf("invalid argon2id hash supplied, bad key encoding")
 		return false
 	}
 
-	keylen := uint32(len(extractedHash))
-	newHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, keylen)
-
-	if subtle.ConstantTimeCompare(newHash, extractedHash) == 1 {
-		return true
+	// The limits are checked before any key derivation work.
+	if !argon2InLimits(memory, int(iterations), parallelism, len(extractedHash), len(salt)) {
+		log.Errorf("invalid argon2id hash supplied, parameters are outside the limits")
+		return false
 	}
 
-	return false
+	newHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(extractedHash))) //nolint:gosec // length is at most maxKeyLen here
+
+	return subtle.ConstantTimeCompare(newHash, extractedHash) == 1
+}
+
+// argon2InLimits reports whether the parameters are in the range that Compare accepts.
+func argon2InLimits(memory uint32, iterations int, parallelism uint8, keyLen, saltLen int) bool {
+	return memory <= maxArgon2Memory &&
+		iterations >= 1 && iterations <= maxArgon2Iterations &&
+		parallelism >= 1 && parallelism <= maxArgon2Parallelism &&
+		keyLen >= 1 && keyLen <= maxKeyLen &&
+		saltLen >= 0 && saltLen <= maxSaltLen
 }
 
 func (h argon2IDHasher) hashWithSalt(password string, salt []byte, memory uint32, iterations int, parallelism uint8, keylen int) string {

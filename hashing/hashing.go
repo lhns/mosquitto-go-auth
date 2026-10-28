@@ -39,6 +39,19 @@ const (
 	defaultPBKDF2Algorithm  = SHA512
 )
 
+// Limits for stored hashes. Compare refuses a hash outside these limits before
+// it does any key derivation.
+const (
+	maxEncodedHashLen   = 4096    // bytes of the whole stored hash string
+	maxKeyLen           = 512     // bytes of the derived key
+	maxSaltLen          = 512     // bytes of the decoded salt
+	maxPBKDF2Iterations = 5000000 // about 8 times the OWASP value for PBKDF2-HMAC-SHA256
+
+	maxArgon2Memory      = 1 << 20 // KiB, that is 1 GiB
+	maxArgon2Iterations  = 32
+	maxArgon2Parallelism = 64
+)
+
 var saltEncodings = map[string]struct{}{
 	UTF8:   {},
 	Base64: {},
