@@ -120,7 +120,7 @@ func (o Sqlite) GetUser(username, password, clientid string) (bool, error) {
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("SQlite get user error: user %s not found.", username)
+		log.Debugf("SQlite get user error: user not found")
 		return false, nil
 	}
 
@@ -154,7 +154,7 @@ func (o Sqlite) GetSuperuser(username string) (bool, error) {
 	}
 
 	if !count.Valid {
-		log.Debugf("sqlite get superuser error: user %s not found", username)
+		log.Debugf("sqlite get superuser error: user not found")
 		return false, nil
 	}
 

@@ -307,7 +307,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: %s", string(body))
+			log.Infof("http check denied, status %d", resp.StatusCode)
 			return false, nil
 		}
 
@@ -323,13 +323,13 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			log.Infof("api error: %s", response.Error)
+			log.Infof("http check denied, status %d", resp.StatusCode)
 			return false, nil
 		}
 
 	}
 
-	log.Debugf("http request approved for %s", username)
+	log.Debug("http request approved")
 	return true, nil
 
 }

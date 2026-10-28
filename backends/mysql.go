@@ -252,7 +252,7 @@ func (o Mysql) GetUser(username, password, clientid string) (bool, error) {
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("MySql get user error: user %s not found", username)
+		log.Debugf("MySql get user error: user not found")
 		return false, nil
 	}
 
@@ -286,7 +286,7 @@ func (o Mysql) GetSuperuser(username string) (bool, error) {
 	}
 
 	if !count.Valid {
-		log.Debugf("MySql get superuser error: user %s not found", username)
+		log.Debugf("MySql get superuser error: user not found")
 		return false, nil
 	}
 

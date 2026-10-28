@@ -199,7 +199,7 @@ func (o Postgres) GetUser(username, password, clientid string) (bool, error) {
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("PG get user error: user %s not found", username)
+		log.Debugf("PG get user error: user not found")
 		return false, err
 	}
 
@@ -233,7 +233,7 @@ func (o Postgres) GetSuperuser(username string) (bool, error) {
 	}
 
 	if !count.Valid {
-		log.Debugf("PG get superuser error: user %s not found", username)
+		log.Debugf("PG get superuser error: user not found")
 		return false, nil
 	}
 

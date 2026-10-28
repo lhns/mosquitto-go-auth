@@ -352,7 +352,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: %s", string(body))
+			log.Infof("remote check denied")
 			return false, nil
 		}
 
@@ -368,7 +368,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		}
 
 		if !response.Ok {
-			log.Infof("api error: %s", response.Error)
+			log.Infof("remote check denied")
 			return false, nil
 		}
 
