@@ -119,11 +119,7 @@ func Initialize(authOpts map[string]string, logLevel log.Level, version string) 
 		}
 	}
 
-	for _, backend := range backends {
-		if backend == jwtBackend {
-			b.jwtConfigured = true
-		}
-	}
+	b.jwtConfigured = jwtConfigured(authOpts)
 
 	err := b.addBackends(authOpts, logLevel, backends, version)
 	if err != nil {
@@ -307,6 +303,17 @@ func (b *Backends) setCheckers(authOpts map[string]string) error {
 	}
 
 	return nil
+}
+
+// jwtConfigured tells if the jwt backend is in the backends option. Then a username can be a token,
+// and the text of a remote error (gRPC, HTTP, script) can echo it.
+func jwtConfigured(authOpts map[string]string) bool {
+	for _, backend := range strings.Split(strings.Replace(authOpts["backends"], " ", "", -1), ",") {
+		if backend == jwtBackend {
+			return true
+		}
+	}
+	return false
 }
 
 // UsernameLoggable tells if usernames may appear in logs and spans.

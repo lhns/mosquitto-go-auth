@@ -17,6 +17,8 @@ type Javascript struct {
 	aclScript       string
 
 	runner *js.Runner
+
+	hideErrors bool // a jwt backend is configured: the script error can echo the token
 }
 
 func NewJavascript(authOpts map[string]string, logLevel log.Level) (*Javascript, error) {
@@ -24,6 +26,7 @@ func NewJavascript(authOpts map[string]string, logLevel log.Level) (*Javascript,
 	log.SetLevel(logLevel)
 
 	javascript := &Javascript{
+		hideErrors:      jwtConfigured(authOpts),
 		stackDepthLimit: js.DefaultStackDepthLimit,
 		msMaxDuration:   js.DefaultMsMaxDuration,
 	}
@@ -104,6 +107,9 @@ func (o *Javascript) GetUser(username, password, clientid string) (bool, error) 
 
 	granted, err := o.runner.RunScript(o.userScript, params)
 	if err != nil {
+		if o.hideErrors {
+			err = scriptError(err)
+		}
 		log.Errorf("js error: %s", err)
 	}
 
@@ -117,6 +123,9 @@ func (o *Javascript) GetSuperuser(username string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.superuserScript, params)
 	if err != nil {
+		if o.hideErrors {
+			err = scriptError(err)
+		}
 		log.Errorf("js error: %s", err)
 	}
 
@@ -133,6 +142,9 @@ func (o *Javascript) CheckAcl(username, topic, clientid string, acc int32) (bool
 
 	granted, err := o.runner.RunScript(o.aclScript, params)
 	if err != nil {
+		if o.hideErrors {
+			err = scriptError(err)
+		}
 		log.Errorf("js error: %s", err)
 	}
 
