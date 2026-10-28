@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -263,9 +262,8 @@ func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	}
 
 	for _, acl := range acls {
-		aclTopic := strings.Replace(acl, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-		if topics.Match(aclTopic, topic) {
+		aclTopic, valid := topics.Substitute(acl, username, clientid)
+		if valid && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}

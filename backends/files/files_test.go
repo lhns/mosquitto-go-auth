@@ -370,3 +370,77 @@ func TestFiles(t *testing.T) {
 		So(record.topic, ShouldEqual, "test/#")
 	})
 }
+
+func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
+	Convey("Given rules that start with a wildcard and a deny pattern", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("pattern read clients/%c/#\npattern read users/%u/%c\npattern deny private/%c/#\n\nuser test1\ntopic readwrite #\n\nuser test2\ntopic readwrite +/x\ntopic read $SYS/#\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A rule that starts with # or + should not grant a topic that starts with $", func() {
+			for _, acc := range []int32{MOSQ_ACL_READ, MOSQ_ACL_WRITE, MOSQ_ACL_SUBSCRIBE} {
+				for _, topic := range []string{"$SYS/broker/uptime", "$private/x", "$SYS/#"} {
+					granted, err := files.CheckAcl("test1", topic, "id", acc)
+					So(err, ShouldBeNil)
+					So(granted, ShouldBeFalse)
+				}
+			}
+			granted, err := files.CheckAcl("test2", "$private/x", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("test1", "a/b", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A rule that names the $ prefix should grant it", func() {
+			granted, err := files.CheckAcl("test2", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A shared subscription filter should keep the old matching", func() {
+			granted, err := files.CheckAcl("test1", "$share/g/a/b", "id", MOSQ_ACL_SUBSCRIBE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A pattern rule should apply only when the placeholder values are valid", func() {
+			granted, err := files.CheckAcl("other", "clients/id/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			granted, err = files.CheckAcl("other", "users/other/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			for _, id := range []string{"+", "a/+", "", "a\x00"} {
+				granted, err = files.CheckAcl("other", "clients/x/y", id, MOSQ_ACL_READ)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeFalse)
+			}
+
+			granted, err = files.CheckAcl("+", "users/x/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("a/b", "users/a/b/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A deny pattern should deny when the client ID is not valid for a placeholder", func() {
+			granted, err := files.CheckAcl("test1", "a/b", "+", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("test1", "private/id/x", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+	})
+}

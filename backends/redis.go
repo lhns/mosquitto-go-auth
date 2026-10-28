@@ -406,9 +406,8 @@ func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, erro
 	}
 
 	for _, acl := range commonAcls {
-		aclTopic := strings.Replace(acl, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-		if topics.Match(aclTopic, topic) {
+		aclTopic, valid := topics.Substitute(acl, username, clientid)
+		if valid && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}
