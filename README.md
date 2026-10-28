@@ -280,6 +280,8 @@ Set all other plugin options below in the same file.
 
 **Note:** Do not set `password_file` or `acl_file` in `mosquitto.conf`, as they bypass the plugin's auth backends entirely.
 
+**Note:** Load the plugin only once. The plugin has one global state, so it refuses a second load (for example one `auth_plugin` line for each listener with `per_listener_settings true`). The broker then does not start.
+
 #### Backends order
 
 By default, the plugin won't establish any order for checks (Go maps guarantee no order).
