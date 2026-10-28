@@ -158,3 +158,35 @@ func TestJWTSkipExpirationSkipsOnlyExpiration(t *testing.T) {
 		})
 	}
 }
+
+func TestJWTJSNonStringUsernameIsDenied(t *testing.T) {
+	opts := map[string]string{
+		"jwt_mode":                     "js",
+		"jwt_parse_token":              "true",
+		"jwt_secret":                   "some_jwt_secret",
+		"jwt_js_user_script_path":      "../test-files/jwt/parsed_user_script.js",
+		"jwt_js_superuser_script_path": "../test-files/jwt/superuser_script.js",
+		"jwt_js_acl_script_path":       "../test-files/jwt/acl_script.js",
+	}
+	b, err := NewJWT(opts, log.ErrorLevel, hashing.NewHasher(opts, "files"), "test")
+	require.NoError(t, err)
+
+	for name, sub := range map[string]interface{}{"number": 5, "null": nil, "object": map[string]interface{}{"a": "b"}} {
+		t.Run(name, func(t *testing.T) {
+			token := sign(t, jwt.SigningMethodHS256, []byte("some_jwt_secret"), claims(func(c jwt.MapClaims) { c["sub"] = sub }))
+			require.NotPanics(t, func() {
+				got, err := b.GetUser(token, "pass", "id")
+				require.Error(t, err)
+				require.False(t, got)
+
+				got, err = b.GetSuperuser(token)
+				require.Error(t, err)
+				require.False(t, got)
+
+				got, err = b.CheckAcl(token, "test/topic", "id", 1)
+				require.Error(t, err)
+				require.False(t, got)
+			})
+		})
+	}
+}
