@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
-	"time"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -304,7 +302,7 @@ func TestFiles(t *testing.T) {
 		files.Halt()
 	})
 
-	Convey("On SIGHUP files should be reloaded", t, func() {
+	Convey("On Reload files should be reloaded", t, func() {
 		pwFile, err := os.Create("test-files/test-passwords")
 		So(err, ShouldBeNil)
 		aclFile, err := os.Create("test-files/test-acls")
@@ -358,9 +356,10 @@ func TestFiles(t *testing.T) {
 		aclFile.WriteString("\nuser test2")
 		aclFile.WriteString("\ntopic write test/#")
 
-		files.signals <- syscall.SIGHUP
+		pwFile.Sync()
+		aclFile.Sync()
 
-		time.Sleep(200 * time.Millisecond)
+		So(files.Reload(), ShouldBeNil)
 
 		user, ok = files.Users()[user2]
 		So(ok, ShouldBeTrue)

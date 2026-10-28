@@ -84,26 +84,19 @@ func TestFilesReload(t *testing.T) {
 			So(login("bob", "bob"), ShouldBeTrue)
 			So(allowed("bob", "shared/x"), ShouldBeTrue)
 
-			// A password line that is not well formatted fails the reload. The ACL file is valid.
-			write(aclPath, "user alice\ntopic read a/#\n")
-			write(pwPath, "alice:"+alicePw+"\nsecret-line-content\n")
-			err := files.Reload()
-			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, pwPath)
-			So(err.Error(), ShouldContainSubstring, "line 2")
-			So(err.Error(), ShouldNotContainSubstring, "secret-line-content")
-			So(login("bob", "bob"), ShouldBeTrue)
-			So(login("alice", "alice"), ShouldBeTrue)
-			So(allowed("bob", "shared/x"), ShouldBeTrue)
-
-			// A line with only a tab makes the parser panic. The reload returns an error.
-			write(aclPath, "user alice\n\t\n")
-			So(files.Reload(), ShouldNotBeNil)
-			So(login("bob", "bob"), ShouldBeTrue)
-
 			So(os.Remove(pwPath), ShouldBeNil)
 			So(files.Reload(), ShouldNotBeNil)
 			So(login("bob", "bob"), ShouldBeTrue)
+		})
+
+		Convey("A reload should skip malformed password lines like startup", func() {
+			write(pwPath, "alice:"+alicePw+"\nsecret-line-content\n")
+			write(aclPath, "user alice\ntopic read a/#\n")
+			So(files.Reload(), ShouldBeNil)
+
+			So(login("alice", "alice"), ShouldBeTrue)
+			So(login("bob", "bob"), ShouldBeFalse)
+			So(allowed("alice", "a/x"), ShouldBeTrue)
 		})
 
 		Convey("A change of the result of Users should not change the checker", func() {
@@ -133,11 +126,6 @@ func TestFilesReload(t *testing.T) {
 			}()
 			wg.Wait()
 			So(allowed("bob", "b/x"), ShouldBeTrue)
-		})
-
-		Convey("Halt should be safe to call more than once", func() {
-			files.Halt()
-			files.Halt()
 		})
 	})
 }

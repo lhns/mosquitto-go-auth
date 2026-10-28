@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
@@ -65,10 +63,6 @@ type Checker struct {
 	snap            atomic.Pointer[snapshot] // readers load it once for each call and take no lock
 	staticFilesOnly bool
 	hasher          hashing.HashComparer
-	signals         chan os.Signal
-	stop            chan struct{} // closed by Halt
-	done            chan struct{} // closed when the watcher has stopped
-	haltOnce        sync.Once
 }
 
 // NewCheckers initializes a static files checker.
@@ -82,9 +76,6 @@ func NewChecker(backends, passwordPath, aclPath string, logLevel log.Level, hash
 		checkACLs:       true,
 		staticFilesOnly: true,
 		hasher:          hasher,
-		signals:         make(chan os.Signal, 1),
-		stop:            make(chan struct{}),
-		done:            make(chan struct{}),
 		checkUsers:      true,
 	}
 	checker.snap.Store(newSnapshot())
@@ -103,32 +94,12 @@ func NewChecker(backends, passwordPath, aclPath string, logLevel log.Level, hash
 		checker.staticFilesOnly = false
 	}
 
-	err := checker.loadStaticFiles(false)
+	err := checker.loadStaticFiles()
 	if err != nil {
 		return nil, err
 	}
 
-	signal.Notify(checker.signals, syscall.SIGHUP)
-	go checker.watchSignals()
-
 	return checker, nil
-}
-
-// watchSignals reloads the files on SIGHUP until Halt closes stop.
-func (o *Checker) watchSignals() {
-	defer close(o.done)
-
-	for {
-		select {
-		case <-o.stop:
-			return
-		case sig := <-o.signals:
-			if sig == syscall.SIGHUP {
-				log.Debugln("[StaticFiles] got SIGHUP, reloading static files")
-				_ = o.Reload()
-			}
-		}
-	}
 }
 
 // Reload reads the files again. On failure it keeps the last good data, logs a warning and returns the error.
@@ -143,19 +114,19 @@ func (o *Checker) Reload() (err error) {
 		}
 	}()
 
-	return o.loadStaticFiles(true)
+	return o.loadStaticFiles()
 }
 
 // loadStaticFiles reads both files into a new snapshot and publishes it only when both reads succeed.
-// On a reload, a password line that is not well formatted is an error. At startup it is skipped.
-func (o *Checker) loadStaticFiles(reload bool) error {
+// Like at startup, a password line that is not well formatted is skipped and logged. Only an unreadable file is an error.
+func (o *Checker) loadStaticFiles() error {
 	o.Lock()
 	defer o.Unlock()
 
 	s := newSnapshot()
 
 	if o.checkUsers {
-		count, err := o.readPasswords(s, reload)
+		count, err := o.readPasswords(s)
 		if err != nil {
 			return errors.Errorf("read passwords: %s", err)
 		}
@@ -178,7 +149,7 @@ func (o *Checker) loadStaticFiles(reload bool) error {
 }
 
 // ReadPasswords reads passwords file and populates static file users. Returns amount of users seen and possile error.
-func (o *Checker) readPasswords(s *snapshot, strict bool) (int, error) {
+func (o *Checker) readPasswords(s *snapshot) (int, error) {
 
 	usersCount := 0
 
@@ -202,9 +173,6 @@ func (o *Checker) readPasswords(s *snapshot, strict bool) (int, error) {
 
 		lineArr := strings.Split(text, ":")
 		if len(lineArr) != 2 {
-			if strict {
-				return 0, fmt.Errorf("[StaticFiles] error: passwords file %s: line %d is not well formatted", o.pwPath, index)
-			}
 			log.Errorf("Read passwords error: line %d is not well formatted", index)
 			continue
 		}
@@ -486,12 +454,5 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 
 }
 
-// Halt stops the SIGHUP notification and the reload watcher, and waits for the watcher to stop.
-// It is safe to call more than once.
-func (o *Checker) Halt() {
-	o.haltOnce.Do(func() {
-		signal.Stop(o.signals)
-		close(o.stop)
-		<-o.done
-	})
-}
+// Halt does nothing: the checker holds no resources.
+func (o *Checker) Halt() {}
