@@ -33,8 +33,8 @@ func NewArgon2IDHasher(saltSize int, iterations int, keylen int, memory uint32, 
 
 // Hash generates a hashed password using Argon2ID.
 func (h argon2IDHasher) Hash(password string) (string, error) {
-	// The library panics on these values.
-	if h.iterations < 1 || h.parallelism < 1 || h.keyLen < 0 {
+	// Same limits as Compare, so that Hash never makes a hash that Compare refuses (and the library never panics).
+	if !argon2InLimits(h.memory, h.iterations, h.parallelism, h.keyLen, h.saltSize) {
 		return "", errors.New("invalid argon2id parameters")
 	}
 

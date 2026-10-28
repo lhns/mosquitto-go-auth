@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -43,6 +44,11 @@ func NewPBKDF2Hasher(saltSize int, iterations int, algorithm string, saltEncodin
 // contain options according to the PHC String format found at
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 func (h pbkdf2Hasher) Hash(password string) (string, error) {
+	// Same limits as Compare, so that Hash never makes a hash that Compare refuses.
+	if !pbkdf2InLimits(h.iterations, h.keyLen, h.saltSize) {
+		return "", errors.New("invalid pbkdf2 parameters")
+	}
+
 	// Generate a random salt value with the given salt size.
 	salt := make([]byte, h.saltSize)
 	_, err := rand.Read(salt)

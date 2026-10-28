@@ -47,7 +47,7 @@ const (
 	maxSaltLen          = 512     // bytes of the decoded salt
 	maxPBKDF2Iterations = 5000000 // about 8 times the OWASP value for PBKDF2-HMAC-SHA256
 
-	maxArgon2Memory      = 1 << 20 // KiB, that is 1 GiB
+	maxArgon2Memory      = 1 << 22 // KiB, that is 4 GiB
 	maxArgon2Iterations  = 32
 	maxArgon2Parallelism = 64
 )
@@ -158,6 +158,4 @@ func NewHasher(authOpts map[string]string, backend string) HashComparer {
 
 	saltEncoding := opts["hasher_salt_encoding"]
 	return NewPBKDF2Hasher(saltSize, iterations, algorithm, saltEncoding, keyLen)
-
-	return nil
 }
