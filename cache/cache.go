@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/hmac"
 	crand "crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	bes "github.com/iegomez/mosquitto-go-auth/backends"
@@ -29,6 +32,8 @@ type redisStore struct {
 	refreshExpiration bool
 	client            bes.RedisClient
 	keys              keyer
+	// sweepDone is closed when the sweep of legacy keys has ended.
+	sweepDone chan struct{}
 }
 
 type goStore struct {
@@ -84,7 +89,7 @@ func NewSingleRedisStore(host, port, password, keySecret string, db int, authExp
 		DB:       db,       // use default db
 	})
 	//If cache is on, try to start redis.
-	return &redisStore{
+	return newRedisStore(&redisStore{
 		authExpiration:    authExpiration,
 		aclExpiration:     aclExpiration,
 		authJitter:        authJitter,
@@ -92,7 +97,7 @@ func NewSingleRedisStore(host, port, password, keySecret string, db int, authExp
 		refreshExpiration: refreshExpiration,
 		client:            &bes.SingleRedisClient{Client: redisClient},
 		keys:              keyerFromSecret(keySecret),
-	}
+	})
 }
 
 // NewSingleRedisStore initializes a cache using a Redis Cluster as the store.
@@ -103,7 +108,7 @@ func NewRedisClusterStore(password, keySecret string, addresses []string, authEx
 			Password: password,
 		})
 
-	return &redisStore{
+	return newRedisStore(&redisStore{
 		authExpiration:    authExpiration,
 		aclExpiration:     aclExpiration,
 		authJitter:        authJitter,
@@ -111,7 +116,7 @@ func NewRedisClusterStore(password, keySecret string, addresses []string, authEx
 		refreshExpiration: refreshExpiration,
 		client:            clusterClient,
 		keys:              keyerFromSecret(keySecret),
-	}
+	})
 }
 
 // Cache keys have the form "mga:v5:<domain>:<hex digest>", where domain is "auth" or "acl".
@@ -365,4 +370,81 @@ func (s *redisStore) setRecord(ctx context.Context, record, granted string, expi
 
 func (s *redisStore) set(ctx context.Context, record string, granted string, expirationTime time.Duration) error {
 	return s.client.Set(ctx, record, granted, expirationTime).Err()
+}
+
+// legacyEmptySHA1 is SHA-1 of the empty input. Earlier versions called Sum on a fresh hash without
+// Write, so a legacy key is base64(plaintext || legacyEmptySHA1), with plaintext "auth-..." or "acl-...".
+var legacyEmptySHA1 = sha1.Sum(nil)
+
+// isLegacyKey tells if key was written by an earlier version: padded standard base64 that decodes
+// to an "auth-" or "acl-" text followed by the SHA-1 of the empty input.
+func isLegacyKey(key string) bool {
+	raw, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(raw) <= len(legacyEmptySHA1) {
+		return false
+	}
+
+	text, sum := raw[:len(raw)-len(legacyEmptySHA1)], raw[len(raw)-len(legacyEmptySHA1):]
+	return string(sum) == string(legacyEmptySHA1[:]) &&
+		(strings.HasPrefix(string(text), "auth-") || strings.HasPrefix(string(text), "acl-"))
+}
+
+// newRedisStore starts the sweep of legacy keys in the background.
+func newRedisStore(s *redisStore) *redisStore {
+	s.sweepDone = make(chan struct{})
+	go func() {
+		defer close(s.sweepDone)
+		s.sweepLegacyKeys(context.Background())
+	}()
+	return s
+}
+
+// sweepLegacyKeys deletes the keys of earlier versions: they hold the password in the key, readable
+// with Redis KEYS or a backup. It scans every master and only deletes keys that isLegacyKey accepts.
+// On an error it logs and stops: the cache works without the sweep.
+func (s *redisStore) sweepLegacyKeys(ctx context.Context) {
+	// Cluster masters are swept concurrently.
+	var deleted atomic.Int64
+	err := s.client.ForEachMaster(ctx, func(ctx context.Context, node *goredis.Client) error {
+		var cursor uint64
+		for {
+			keys, next, err := node.Scan(ctx, cursor, "*", 1000).Result()
+			if err != nil {
+				return err
+			}
+
+			var legacy []string
+			for _, k := range keys {
+				if isLegacyKey(k) {
+					legacy = append(legacy, k)
+				}
+			}
+			if len(legacy) > 0 {
+				// One UNLINK per key: a multi-key command fails with CROSSSLOT on a cluster.
+				cmds, err := node.Pipelined(ctx, func(p goredis.Pipeliner) error {
+					for _, k := range legacy {
+						p.Unlink(ctx, k)
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+				for _, c := range cmds {
+					deleted.Add(c.(*goredis.IntCmd).Val())
+				}
+			}
+
+			if next == 0 {
+				return nil
+			}
+			cursor = next
+		}
+	})
+	if err != nil {
+		log.Errorf("couldn't sweep legacy cache keys, stopping: %s", err)
+	}
+	if n := deleted.Load(); n > 0 {
+		log.Infof("deleted %d legacy cache keys", n)
+	}
 }

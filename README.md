@@ -374,7 +374,7 @@ Notice that if `cache_mode` is not provided or isn't equal to `cluster`, cache w
 
 ##### Cache keys
 
-A cache key is a digest of its fields, with the form `mga:v5:<auth|acl>:<hex digest>`. The key does not contain the username, password, topic or client ID. Keys of earlier versions are not read, so after an upgrade the cache starts empty and the old entries expire.
+A cache key is a digest of its fields, with the form `mga:v5:<auth|acl>:<hex digest>`. The key does not contain the username, password, topic or client ID. Keys of earlier versions are not read, so after an upgrade the cache starts empty. With Redis, the plugin deletes the old keys at startup in the background (it scans every master of a cluster and logs how many keys it deleted), because they contain the password. Rotate the passwords if Redis may have been read before the upgrade. Keys from before 2020 have another format and are not deleted. The sweep runs once at startup, on the configured database (`cache_db`) of a single instance or on every master of a cluster. If it cannot reach Redis, it logs an error and stops; restart to try again. Keys left where the cache was before, for example in another `cache_db` or on a single instance after a switch to a cluster, must be deleted by hand.
 
 The in memory cache uses HMAC-SHA-256 with a random key for each process. The Redis cache uses HMAC-SHA-256 with the key `cache_key_secret`. `cache_password` is not used for this. When `cache_key_secret` is not set, the key is a plain SHA-256 digest and the plugin logs a warning at startup. Set the same `cache_key_secret` on all brokers that share one Redis cache:
 

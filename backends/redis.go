@@ -27,6 +27,8 @@ type RedisClient interface {
 	SAdd(ctx context.Context, key string, members ...interface{}) *goredis.IntCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *goredis.BoolCmd
 	ReloadState(ctx context.Context)
+	// ForEachMaster runs fn on every master of a cluster, or once on a single node.
+	ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *goredis.Client) error) error
 }
 
 type SingleRedisClient struct {
@@ -35,6 +37,10 @@ type SingleRedisClient struct {
 
 func (c *SingleRedisClient) ReloadState(ctx context.Context) {
 	// NO-OP for single node clients
+}
+
+func (c *SingleRedisClient) ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *goredis.Client) error) error {
+	return fn(ctx, c.Client)
 }
 
 type Redis struct {

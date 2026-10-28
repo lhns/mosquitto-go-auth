@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
 	"testing"
 	"time"
 
@@ -366,4 +368,61 @@ func TestRedisClusterStore(t *testing.T) {
 
 	assert.True(t, present)
 	assert.True(t, granted)
+}
+
+// legacyKey builds a key as earlier versions wrote it: base64 of the text plus SHA-1 of the empty input.
+func legacyKey(text string) string {
+	empty := sha1.Sum(nil)
+	return base64.StdEncoding.EncodeToString(append([]byte(text), empty[:]...))
+}
+
+// The sweep that the constructor starts deletes legacy keys (which hold the password) and nothing
+// else: a key with the right prefix but another suffix, a foreign key and a current key stay.
+func testSweepLegacyKeys(t *testing.T, newStore func() *redisStore) {
+	ctx := context.Background()
+
+	legacy := []string{legacyKey("auth-legacy-user-legacy-pass"), legacyKey("acl-u-t/1-c-1")}
+	decoy := base64.StdEncoding.EncodeToString([]byte("auth-legacy-user-legacy-pass-not-a-sha1-suffix"))
+	keep := []string{decoy, "foreign:key", "mga:v5:auth:abc"}
+
+	seed := newStore()
+	<-seed.sweepDone
+	for _, k := range append(append([]string{}, legacy...), keep...) {
+		assert.NoError(t, seed.client.Set(ctx, k, "true", time.Minute).Err())
+	}
+	seed.Close()
+
+	store := newStore()
+	defer store.Close()
+	<-store.sweepDone
+
+	for _, k := range legacy {
+		_, err := store.client.Get(ctx, k).Result()
+		assert.Error(t, err, "legacy key %q must be deleted", k)
+	}
+	for _, k := range keep {
+		_, err := store.client.Get(ctx, k).Result()
+		assert.NoError(t, err, "key %q must be kept", k)
+	}
+}
+
+func TestRedisSweepLegacyKeys(t *testing.T) {
+	testSweepLegacyKeys(t, func() *redisStore {
+		return NewSingleRedisStore("localhost", "6379", "", "", 3, time.Minute, time.Minute, 0, 0, false)
+	})
+}
+
+func TestRedisClusterSweepLegacyKeys(t *testing.T) {
+	addresses := []string{"localhost:7000", "localhost:7001", "localhost:7002", "localhost:7003", "localhost:7004", "localhost:7005"}
+	testSweepLegacyKeys(t, func() *redisStore {
+		return NewRedisClusterStore("", "", addresses, time.Minute, time.Minute, 0, 0, false)
+	})
+}
+
+func TestIsLegacyKey(t *testing.T) {
+	assert.True(t, isLegacyKey(legacyKey("auth-a-b")))
+	assert.True(t, isLegacyKey(legacyKey("acl-a-b-c-1")))
+	assert.False(t, isLegacyKey(legacyKey("other-a-b")))
+	assert.False(t, isLegacyKey(base64.RawStdEncoding.EncodeToString([]byte("auth-a-b"))))
+	assert.False(t, isLegacyKey("mga:v5:auth:fe9e3695616028c061b57e241969d2a81fcc6c6b88f9d93067f99481c0a86b70"))
 }
