@@ -75,7 +75,9 @@ var notPresentJwtToken = jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims
 // keyOpts builds token options with the key and allowed algorithms derived from secret.
 func keyOpts(secret []byte) tokenOptions {
 	o := tokenOptions{secret: secret, userFieldKey: "username"}
-	_ = o.parseKey()
+	if err := o.parseKey(); err != nil {
+		panic(err) // keyOpts also runs at package init, where there is no *testing.T
+	}
 	return o
 }
 

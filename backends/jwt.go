@@ -80,6 +80,12 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		return nil, err
 	}
 
+	// Every mode but remote and js verifies tokens; remote and js only when they parse them.
+	mode := authOpts["jwt_mode"]
+	if options.key == nil && (mode == localMode || mode == filesMode || options.parseToken) {
+		return nil, errors.New("JWT backend error: missing jwt secret, set jwt_secret or jwt_secret_file")
+	}
+
 	if userField, ok := authOpts["jwt_userfield"]; ok && userField == "Username" {
 		options.userFieldKey = claimsUsernameKey
 	} else {
@@ -187,9 +193,6 @@ func getJWTClaims(options tokenOptions, tokenStr string, skipExpiration bool) (*
 	if err != nil {
 		log.Debugf("jwt parse error: %s", err)
 		return nil, err
-	}
-	if jwtToken == nil || !jwtToken.Valid {
-		return nil, errors.New("jwt invalid token")
 	}
 
 	claims, ok := jwtToken.Claims.(*jwtGo.MapClaims)

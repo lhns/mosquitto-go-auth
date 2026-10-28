@@ -117,12 +117,32 @@ func TestJWTSecretWithPEMTextIsHMAC(t *testing.T) {
 	}
 }
 
-func TestJWTEmptySecretRejectsTokens(t *testing.T) {
-	// Tokens signed with an empty HMAC key must not verify when no secret is configured.
-	token := sign(t, jwt.SigningMethodHS256, []byte{}, claims(nil))
-	for _, skip := range []bool{false, true} {
-		got, _ := accepts(t, newACLBackend(t, "", skip), token)
-		require.False(t, got, "skip=%v", skip)
+func TestJWTMissingSecretIsStartupError(t *testing.T) {
+	// Modes that always verify tokens need a secret; remote and js only when they parse tokens.
+	tests := []struct {
+		mode  string
+		extra map[string]string
+		fails bool
+	}{
+		{"files", map[string]string{"jwt_acl_path": "../test-files/acls"}, true},
+		{"local", map[string]string{"jwt_userquery": "select 1"}, true},
+		{"remote", map[string]string{"jwt_host": "localhost", "jwt_port": "80", "jwt_params_mode": "json", "jwt_response_mode": "json", "jwt_getuser_uri": "/u", "jwt_superuser_uri": "/s", "jwt_aclcheck_uri": "/a"}, false},
+		{"remote", map[string]string{"jwt_host": "localhost", "jwt_port": "80", "jwt_params_mode": "json", "jwt_response_mode": "json", "jwt_getuser_uri": "/u", "jwt_superuser_uri": "/s", "jwt_aclcheck_uri": "/a", "jwt_parse_token": "true"}, true},
+		{"js", map[string]string{"jwt_js_user_script_path": "../test-files/jwt/user_script.js", "jwt_js_superuser_script_path": "../test-files/jwt/superuser_script.js", "jwt_js_acl_script_path": "../test-files/jwt/acl_script.js", "jwt_parse_token": "true"}, true},
+	}
+	for _, tt := range tests {
+		opts := map[string]string{"jwt_mode": tt.mode, "backends": "jwt"}
+		for k, v := range tt.extra {
+			opts[k] = v
+		}
+		b, err := NewJWT(opts, log.ErrorLevel, hashing.NewHasher(opts, ""), "test")
+		if tt.fails {
+			require.Error(t, err, "mode %s", tt.mode)
+			require.Contains(t, err.Error(), "jwt_secret", "mode %s", tt.mode)
+		} else {
+			require.NoError(t, err, "mode %s", tt.mode)
+			b.Halt()
+		}
 	}
 }
 
