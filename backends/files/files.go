@@ -351,10 +351,7 @@ func removeAndTrim(prefix, line string, index int) (string, error) {
 }
 
 func checkCommentOrEmpty(line string) bool {
-	if len(strings.Replace(line, " ", "", -1)) == 0 || line[0:1] == "#" {
-		return true
-	}
-	return false
+	return strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == ""
 }
 
 // Users returns a copy of the users of the current snapshot.

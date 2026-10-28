@@ -99,6 +99,19 @@ func TestFilesReload(t *testing.T) {
 			So(allowed("alice", "a/x"), ShouldBeTrue)
 		})
 
+		Convey("Lines with only white space or an indented comment should be skipped", func() {
+			write(pwPath, "alice:"+alicePw+"\n\t\n   # comment\n")
+			write(aclPath, "user alice\n\t\n\t# comment\ntopic read a/#\n")
+			So(files.Reload(), ShouldBeNil)
+
+			So(login("alice", "alice"), ShouldBeTrue)
+			So(allowed("alice", "a/x"), ShouldBeTrue)
+
+			fresh, err := NewChecker("files", pwPath, aclPath, log.ErrorLevel, hasher)
+			So(err, ShouldBeNil)
+			So(len(fresh.Users()), ShouldEqual, 1)
+		})
+
 		Convey("A change of the result of Users should not change the checker", func() {
 			delete(files.Users(), "bob")
 			files.Users()["alice"].aclRecords[0].topic = "#"
