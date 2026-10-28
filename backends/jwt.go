@@ -160,6 +160,7 @@ func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.M
 	expirationError := false
 	if err != nil {
 		if !skipExpiration {
+			err = jwtClaimError(err)
 			log.Debugf("jwt parse error: %s", err)
 			return nil, err
 		}
@@ -231,4 +232,24 @@ func getIssForToken(options tokenOptions, tokenStr string, skipExpiration bool) 
 	}
 
 	return issString, nil
+}
+
+// jwtClaimError maps an error of the JWT library to a fixed text. The library text can echo a
+// part of the token (a JSON decode error shows a character of the payload), so it is not used.
+// The error still matches the sentinel of its kind (errors.Is with the jwt.Err... values).
+func jwtClaimError(err error) error {
+	for _, sentinel := range []error{
+		jwtGo.ErrTokenExpired,
+		jwtGo.ErrTokenNotValidYet,
+		jwtGo.ErrTokenSignatureInvalid,
+		jwtGo.ErrTokenRequiredClaimMissing,
+		jwtGo.ErrTokenMalformed,
+		jwtGo.ErrTokenUnverifiable,
+		jwtGo.ErrTokenInvalidClaims,
+	} {
+		if errors.Is(err, sentinel) {
+			return fmt.Errorf("jwt: %w", sentinel)
+		}
+	}
+	return errors.New("jwt: token invalid")
 }

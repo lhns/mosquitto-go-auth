@@ -151,7 +151,7 @@ func (o *localJWTChecker) getLocalUser(username string) (bool, error) {
 	}
 
 	if !count.Valid {
-		log.Debugf("local JWT get user error: user %s not found", username)
+		log.Debug("local JWT get user error: user not found")
 		return false, nil
 	}
 

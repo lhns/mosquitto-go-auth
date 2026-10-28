@@ -104,7 +104,8 @@ func (o *jsJWTChecker) GetUser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.userScript, params)
 	if err != nil {
-		log.Errorf("js error: %s", err)
+		err = scriptError(err)
+		log.Error(err)
 	}
 
 	return granted, err
@@ -145,7 +146,8 @@ func (o *jsJWTChecker) GetSuperuser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.superuserScript, params)
 	if err != nil {
-		log.Errorf("js error: %s", err)
+		err = scriptError(err)
+		log.Error(err)
 	}
 
 	return granted, err
@@ -168,7 +170,8 @@ func (o *jsJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bool,
 
 	granted, err := o.runner.RunScript(o.aclScript, params)
 	if err != nil {
-		log.Errorf("js error: %s", err)
+		err = scriptError(err)
+		log.Error(err)
 	}
 
 	return granted, err
@@ -176,4 +179,13 @@ func (o *jsJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bool,
 
 func (o *jsJWTChecker) Halt() {
 	// NO-OP
+}
+
+// scriptError gives a fixed text for a script error. The script can put the token or a
+// credential into its exception, so the text of the error is not used.
+func scriptError(err error) error {
+	if errors.Is(err, js.Halt) {
+		return errors.New("js: script timed out")
+	}
+	return errors.New("js: script error")
 }

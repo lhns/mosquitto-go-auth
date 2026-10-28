@@ -1938,7 +1938,7 @@ func TestJWTHttpTimeout(t *testing.T) {
 		Convey("JWT remote test timeout parameter: YES TIMEOUT", func() {
 			_, err := hb.CheckAcl(token, topic, clientID, MOSQ_ACL_READ)
 			So(err, ShouldBeError)
-			So(err.Error(), ShouldContainSubstring, "acl")
+			So(err.Error(), ShouldContainSubstring, "timed out")
 		})
 
 		hb.Halt()
