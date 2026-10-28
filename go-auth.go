@@ -141,6 +141,8 @@ func initPlugin(opts map[string]string, version string) bool {
 			log.Info("log_level unkwown, using default info level")
 		}
 	}
+	// Apply the level here, so that it is also used when no backend sets it.
+	log.SetLevel(authPlugin.logLevel)
 
 	if logDest, ok := authOpts["log_dest"]; ok {
 		switch logDest {
