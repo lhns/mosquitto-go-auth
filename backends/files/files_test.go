@@ -17,18 +17,21 @@ import (
 func TestFiles(t *testing.T) {
 	authOpts := make(map[string]string)
 
-	Convey("Given empty opts NewChecker should fail", t, func() {
+	// Empty paths are valid since JWT files mode and ACL-only setups: the checker checks nothing.
+	Convey("Given empty opts NewChecker should check nothing", t, func() {
 		files, err := NewChecker("", "", "", log.DebugLevel, hashing.NewHasher(authOpts, "files"))
-		So(err, ShouldBeError)
+		So(err, ShouldBeNil)
+		So(files.checkUsers, ShouldBeFalse)
+		So(files.checkACLs, ShouldBeFalse)
 
 		files.Halt()
 	})
 
 	Convey("Given valid params NewChecker should return a new checker instance", t, func() {
 		backendsOpt := "files"
-		pwPath, err := filepath.Abs("test-files/passwords")
+		pwPath, err := filepath.Abs("../../test-files/passwords")
 		So(err, ShouldBeNil)
-		aclPath, err := filepath.Abs("test-files/acls")
+		aclPath, err := filepath.Abs("../../test-files/acls")
 		So(err, ShouldBeNil)
 		clientID := "test_client"
 
@@ -305,14 +308,14 @@ func TestFiles(t *testing.T) {
 	})
 
 	Convey("On SIGHUP files should be reloaded", t, func() {
-		pwFile, err := os.Create("test-files/test-passwords")
+		pwFile, err := os.Create("../../test-files/test-passwords")
 		So(err, ShouldBeNil)
-		aclFile, err := os.Create("test-files/test-acls")
+		aclFile, err := os.Create("../../test-files/test-acls")
 		So(err, ShouldBeNil)
 
-		pwPath, err := filepath.Abs("test-files/test-passwords")
+		pwPath, err := filepath.Abs("../../test-files/test-passwords")
 		So(err, ShouldBeNil)
-		aclPath, err := filepath.Abs("test-files/test-acls")
+		aclPath, err := filepath.Abs("../../test-files/test-acls")
 		So(err, ShouldBeNil)
 
 		defer os.Remove(pwPath)
