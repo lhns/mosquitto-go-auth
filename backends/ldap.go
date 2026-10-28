@@ -1,12 +1,17 @@
 package backends
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"github.com/go-ldap/ldap/v3"
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
 )
 
 type LDAPClientFactory func(LDAP) (LDAPClient, error)
@@ -31,16 +36,47 @@ type LDAP struct {
 	AclTopicPatternAttribute string
 	AclAccAttribute          string
 	hideToken                bool // a jwt backend is configured: the username can be a token
+	rootCAs                  *x509.CertPool
 }
 
 func NewLDAP(authOpts map[string]string, logLevel log.Level) (*LDAP, error) {
 
 	l, err := NewLDAPWithFactory(authOpts, logLevel, func(l LDAP) (LDAPClient, error) {
-		ldapClient, err := ldap.DialURL(l.Url)
+		ldapClient, err := ldap.DialURL(l.Url, ldapDialOpts(l)...)
 		return ldapClient, err
 	})
 
 	return l, err
+}
+
+// ldapDialOpts returns the dial options for the connection to the server.
+// With ldap_ca_cert, an ldaps:// connection trusts the system CAs and the CAs in that file.
+func ldapDialOpts(l LDAP) []ldap.DialOpt {
+	if l.rootCAs == nil {
+		return nil
+	}
+	u, err := url.Parse(l.Url)
+	if err != nil {
+		return nil
+	}
+	return []ldap.DialOpt{ldap.DialWithTLSConfig(&tls.Config{ServerName: u.Hostname(), RootCAs: l.rootCAs})}
+}
+
+// loadLDAPRootCAs reads ldap_ca_cert: a PEM file with CA certificates. It returns the system pool
+// with these certificates added.
+func loadLDAPRootCAs(path string) (*x509.CertPool, error) {
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("LDAP backend error: ldap_ca_cert: the file cannot be read")
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, errors.New("LDAP backend error: ldap_ca_cert: the file has no PEM certificate")
+	}
+	return pool, nil
 }
 
 func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClientFactory LDAPClientFactory) (*LDAP, error) {
@@ -62,6 +98,18 @@ func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClie
 
 	if host, ok := authOpts["ldap_url"]; ok {
 		l.Url = host
+	}
+
+	if caPath := authOpts["ldap_ca_cert"]; caPath != "" {
+		if !strings.HasPrefix(strings.ToLower(l.Url), "ldaps://") {
+			// There is no StartTLS: with another URL the passwords would go in plaintext.
+			return &l, errors.New("LDAP backend error: ldap_ca_cert is set, but ldap_url is not an ldaps:// URL")
+		}
+		pool, err := loadLDAPRootCAs(caPath)
+		if err != nil {
+			return &l, err
+		}
+		l.rootCAs = pool
 	}
 
 	if baseDN, ok := authOpts["ldap_user_dn"]; ok {
