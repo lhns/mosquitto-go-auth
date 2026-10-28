@@ -527,6 +527,23 @@ Also, these are the current available values from `mosquitto`:
 
 If you're using prior versions then `MOSQ_ACL_SUBSCRIBE` is not available and you don't need to worry about it.
 
+#### ACL topic matching
+
+These rules apply to the ACL checks of the `files`, `mysql`, `postgres`, `sqlite`, `redis`, `mongo` and `ldap` backends, and to the JWT `local` and `files` modes.
+
+A topic that starts with `$` is not matched by a rule whose first level is `+` or `#` (MQTT section 4.7.2). For example, the rule `#` does not grant `$SYS/broker/uptime`. To grant a `$` topic, use a rule that names the prefix, for example `$SYS/#`. A shared subscription filter (`$share/<group>/...`) is not changed by this rule.
+
+When a pattern rule replaces `%u` (username) or `%c` (clientid), the value must not be empty and must not have `+`, `#`, `/` or NUL. If a value is not valid, an allow rule does not apply and a deny rule denies the request. This is the same check that mosquitto does with `auth_plugin_deny_special_chars true`.
+
+Two temporary options restore the old behaviour. They log a warning at startup, and a later release removes them:
+
+```
+auth_opt_acl_legacy_wildcard_match true
+auth_opt_deny_special_chars false
+```
+
+`acl_legacy_wildcard_match true` lets `+` and `#` at the first level match topics that start with `$`. `deny_special_chars false` replaces the placeholders with any value. The plugin reads these options once at startup.
+
 #### Backend options
 
 Any other options with a leading ```auth_opt_``` are handed to the plugin and used by the backends.
