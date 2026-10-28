@@ -925,6 +925,10 @@ The `jwt` backend is for auth with a JWT remote API, a local DB, a JavaScript VM
 | auth_opt_jwt_skip_acl_expiration  |   false   |     N     | Skip token expiration in ACL checks                                                          |
 | auth_opt_jwt_user_agent           | mosquitto |     N     | User agent for requests                                                                      |
 
+The type of the secret sets the accepted algorithms. A PEM RSA public key accepts RS256, RS384 and RS512. A PEM EC public key accepts ES256, ES384 and ES512. Any other value is an HMAC secret and accepts HS256, HS384 and HS512. A secret that contains a PEM block but is not a supported public key stops the plugin at startup. When no secret is set, the backend rejects every token that it must parse.
+
+`jwt_skip_user_expiration` and `jwt_skip_acl_expiration` skip only the expiration check. The signature and the other claim checks still apply. The backend rejects a malformed token.
+
 #### Remote mode
 
 The following options are supported by the `jwt` backend when remote is set to true:
