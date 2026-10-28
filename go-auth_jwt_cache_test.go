@@ -23,6 +23,15 @@ import (
 // token (jwt_parse_token false), and the token algorithm (ES256K) is not
 // registered in the JWT library.
 func TestCachedJWTResultsEndAtExp(t *testing.T) {
+	testCachedJWTResultsEndAtExp(t, false)
+}
+
+// In remote mode the server decides about exp, so the skip options do not lift the cap.
+func TestCachedJWTResultsEndAtExpWithSkipOptions(t *testing.T) {
+	testCachedJWTResultsEndAtExp(t, true)
+}
+
+func testCachedJWTResultsEndAtExp(t *testing.T, skip bool) {
 	saved, savedLevel := authPlugin, log.GetLevel()
 	t.Cleanup(func() {
 		authPlugin = saved
@@ -42,7 +51,7 @@ func TestCachedJWTResultsEndAtExp(t *testing.T) {
 	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
 	require.NoError(t, err)
 
-	b, err := bes.Initialize(map[string]string{
+	authOpts := map[string]string{
 		"backends":          "jwt",
 		"jwt_mode":          "remote",
 		"jwt_host":          host,
@@ -50,7 +59,12 @@ func TestCachedJWTResultsEndAtExp(t *testing.T) {
 		"jwt_getuser_uri":   "/user",
 		"jwt_superuser_uri": "/superuser",
 		"jwt_aclcheck_uri":  "/acl",
-	}, log.ErrorLevel, "2.1.2")
+	}
+	if skip {
+		authOpts["jwt_skip_user_expiration"] = "true"
+		authOpts["jwt_skip_acl_expiration"] = "true"
+	}
+	b, err := bes.Initialize(authOpts, log.ErrorLevel, "2.1.2")
 	require.NoError(t, err)
 	t.Cleanup(b.Halt)
 
@@ -84,4 +98,42 @@ func TestCachedJWTResultsEndAtExp(t *testing.T) {
 		ok, _ = authAclCheck("id", token, "a/b", 1)
 		require.False(t, ok, "acl after exp, refresh %v", refresh)
 	}
+}
+
+// deadlineBackends reports a fixed cache deadline and counts the backend calls.
+type deadlineBackends struct {
+	mockBackends
+	deadline time.Time
+	calls    int
+}
+
+func (d *deadlineBackends) CacheDeadline(string, bool) (time.Time, bool) { return d.deadline, true }
+
+func (d *deadlineBackends) AuthUnpwdCheck(context.Context, string, string, string) (bool, error) {
+	d.calls++
+	return false, nil
+}
+
+// A cache entry is not read once the deadline has passed, and a result is not stored.
+func TestExpiredDeadlineSkipsCache(t *testing.T) {
+	saved := authPlugin
+	t.Cleanup(func() { authPlugin = saved })
+
+	store := cache.NewGoStore(time.Hour, time.Hour, 0, 0, false)
+	t.Cleanup(store.Close)
+	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "true"))
+
+	backends := &deadlineBackends{deadline: time.Now().Add(-time.Second)}
+	authPlugin = AuthPlugin{backends: backends, ctx: context.Background(), useCache: true, cache: store}
+
+	ok, err := authUnpwdCheck("user", "pass", "id")
+	require.NoError(t, err)
+	require.False(t, ok, "the cached grant must not be used")
+	require.Equal(t, 1, backends.calls)
+
+	// The result false was not stored either: a live deadline reads the old entry again.
+	backends.deadline = time.Now().Add(time.Hour)
+	ok, _ = authUnpwdCheck("user", "pass", "id")
+	require.True(t, ok)
+	require.Equal(t, 1, backends.calls)
 }
