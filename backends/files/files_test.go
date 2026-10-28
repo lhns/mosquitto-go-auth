@@ -433,7 +433,7 @@ func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
 			So(granted, ShouldBeFalse)
 		})
 
-		Convey("A deny pattern should deny when the client ID is not valid for a placeholder", func() {
+		Convey("A deny pattern should deny when the client ID has a wildcard", func() {
 			granted, err := files.CheckAcl("test1", "a/b", "+", MOSQ_ACL_WRITE)
 			So(err, ShouldBeNil)
 			So(granted, ShouldBeFalse)
@@ -441,6 +441,40 @@ func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
 			granted, err = files.CheckAcl("test1", "private/id/x", "id", MOSQ_ACL_WRITE)
 			So(err, ShouldBeNil)
 			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A deny pattern should not apply when the client ID is empty or has / or NUL", func() {
+			for _, id := range []string{"", "a/b", "a\x00"} {
+				granted, err := files.CheckAcl("test1", "a/b", id, MOSQ_ACL_WRITE)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeTrue)
+			}
+		})
+	})
+
+	Convey("Given a deny pattern with the user name", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic read public/#\npattern deny users/%u/admin\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+
+		Convey("An anonymous client should not be denied everything", func() {
+			granted, err := files.CheckAcl("", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A user name with a wildcard should be denied", func() {
+			granted, err := files.CheckAcl("+", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A user name with / should not be denied", func() {
+			granted, err := files.CheckAcl("a/b", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
 		})
 	})
 }

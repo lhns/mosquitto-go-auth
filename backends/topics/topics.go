@@ -2,31 +2,9 @@ package topics
 
 import (
 	"strings"
-	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
 )
-
-// Plugin-wide options (auth_opt_<name>). SetOptions sets them once at startup, before any check.
-var (
-	uncheckedPlaceholders atomic.Bool // deny_special_chars false
-	legacyWildcard        atomic.Bool // acl_legacy_wildcard_match true
-)
-
-// SetOptions reads the options deny_special_chars (default true) and acl_legacy_wildcard_match
-// (default false). It logs a warning for each option that turns a check off.
-// Both options are temporary and a later release removes them.
-func SetOptions(authOpts map[string]string) {
-	uncheckedPlaceholders.Store(authOpts["deny_special_chars"] == "false")
-	legacyWildcard.Store(authOpts["acl_legacy_wildcard_match"] == "true")
-
-	if uncheckedPlaceholders.Load() {
-		log.Warn("option deny_special_chars is false: the user name and client ID placeholders are replaced also when the value is empty or has + # / or NUL. This option is temporary and a later release removes it")
-	}
-	if legacyWildcard.Load() {
-		log.Warn("option acl_legacy_wildcard_match is true: a rule that starts with + or # also matches a topic that starts with $. This option is temporary and a later release removes it")
-	}
-}
 
 // Match tells if givenTopic matches savedTopic's pattern.
 // A topic that starts with "$" is not matched by a pattern whose first level is "+" or "#"
@@ -35,7 +13,7 @@ func Match(savedTopic, givenTopic string) bool {
 	if givenTopic == savedTopic {
 		return true
 	}
-	if !legacyWildcard.Load() && strings.HasPrefix(givenTopic, "$") && !strings.HasPrefix(givenTopic, "$share/") {
+	if strings.HasPrefix(givenTopic, "$") && !strings.HasPrefix(givenTopic, "$share/") {
 		if first, _, _ := strings.Cut(savedTopic, "/"); first == "+" || first == "#" {
 			return false
 		}
@@ -58,35 +36,61 @@ func match(route []string, topic []string) bool {
 	return false
 }
 
+// Outcome tells what Substitute did with a pattern.
+type Outcome int
+
+const (
+	// Replaced: the pattern is usable.
+	Replaced Outcome = iota
+	// Skip: a used value is empty or has "/" or NUL. The value cannot widen a rule but it changes
+	// the rule's meaning, so the rule does not apply.
+	Skip
+	// Reject: a used value has "+" or "#". The value would widen a rule.
+	// An allow rule does not apply, a deny rule denies the request.
+	Reject
+)
+
 // Substitute replaces "%u" with username and "%c" with clientid in pattern, in one pass.
-// A replaced value is not scanned again. If a value that pattern uses is empty or has "+", "#",
-// "/" or NUL, the result is ("", false): an allow rule does not apply and a deny rule denies.
-// With deny_special_chars false, the values are not checked.
-func Substitute(pattern, username, clientid string) (string, bool) {
+// A replaced value is not scanned again. If a value that pattern uses is bad, the result is
+// ("", Skip) or ("", Reject), see Outcome. This extends the auth_plugin_deny_special_chars check of mosquitto.
+func Substitute(pattern, username, clientid string) (string, Outcome) {
+	orig := pattern
 	if !strings.Contains(pattern, "%") {
-		return pattern, true
+		return pattern, Replaced
 	}
-	check := !uncheckedPlaceholders.Load()
 	var b strings.Builder
+	// A skipped value does not end the scan: a wildcard in a later value must still give Reject.
+	skipped := false
 	for {
 		i := strings.IndexByte(pattern, '%')
 		if i < 0 || i+1 >= len(pattern) {
+			if skipped {
+				return "", Skip
+			}
 			b.WriteString(pattern)
-			return b.String(), true
+			return b.String(), Replaced
 		}
-		var v string
+		var v, name string
 		switch pattern[i+1] {
 		case 'u':
-			v = username
+			v, name = username, "username"
 		case 'c':
-			v = clientid
+			v, name = clientid, "clientid"
 		default:
 			b.WriteString(pattern[:i+1])
 			pattern = pattern[i+1:]
 			continue
 		}
-		if check && (v == "" || strings.ContainsAny(v, "+#/\x00")) {
-			return "", false
+		// The value is not logged because it can be a token.
+		if strings.ContainsAny(v, "+#") {
+			log.Debugf("acl pattern %q: %s placeholder rejected, it has a wildcard", orig, name)
+			return "", Reject
+		}
+		if v == "" || strings.ContainsAny(v, "/\x00") {
+			log.Debugf("acl pattern %q: %s placeholder skipped, it is empty or has / or NUL", orig, name)
+			skipped = true
+			pattern = pattern[i+2:]
+			continue
 		}
 		b.WriteString(pattern[:i])
 		b.WriteString(v)

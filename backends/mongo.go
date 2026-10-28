@@ -240,8 +240,8 @@ func (o Mongo) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 		var acl MongoAcl
 		err = cur.Decode(&acl)
 		if err == nil {
-			aclTopic, valid := topics.Substitute(acl.Topic, username, clientid)
-			if valid && topics.Match(aclTopic, topic) {
+			aclTopic, outcome := topics.Substitute(acl.Topic, username, clientid)
+			if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 				return true, nil
 			}
 		} else {

@@ -108,14 +108,6 @@ func TestTopicsMatch(t *testing.T) {
 			})
 		}
 	})
-
-	Convey("With acl_legacy_wildcard_match true, + and # should also match a topic that starts with $", t, func() {
-		SetOptions(map[string]string{"acl_legacy_wildcard_match": "true"})
-		defer SetOptions(map[string]string{})
-
-		So(Match("#", "$SYS/broker/uptime"), ShouldBeTrue)
-		So(Match("+/x", "$private/x"), ShouldBeTrue)
-	})
 }
 
 func TestSubstitute(t *testing.T) {
@@ -125,48 +117,41 @@ func TestSubstitute(t *testing.T) {
 			username string
 			clientid string
 			want     string
-			ok       bool
+			ok       Outcome
 		}{
-			{"a/b", "", "", "a/b", true},
-			{"users/%u/%c", "alice", "dev1", "users/alice/dev1", true},
-			{"%u/%u", "alice", "", "alice/alice", true},
-			{"%c%u", "x", "y", "yx", true},
-			{"a/%x/%", "u", "c", "a/%x/%", true},
-			{"a/%%u", "u", "c", "a/%u", true},
+			{"a/b", "", "", "a/b", Replaced},
+			{"users/%u/%c", "alice", "dev1", "users/alice/dev1", Replaced},
+			{"%u/%u", "alice", "", "alice/alice", Replaced},
+			{"%c%u", "x", "y", "yx", Replaced},
+			{"a/%x/%", "u", "c", "a/%x/%", Replaced},
+			{"a/%%u", "alice", "c", "a/%alice", Replaced},
 
 			// A value is not scanned again.
-			{"a/%u", "%c", "dev1", "a/%c", true},
-			{"a/%c", "alice", "%u", "a/%u", true},
+			{"a/%u", "%c", "dev1", "a/%c", Replaced},
+			{"a/%c", "alice", "%u", "a/%u", Replaced},
 
-			// A used value that is empty or has + # / or NUL refuses the pattern.
-			{"clients/%c/#", "alice", "+", "", false},
-			{"clients/%c/#", "alice", "#", "", false},
-			{"clients/%c/#", "alice", "a/b", "", false},
-			{"clients/%c/#", "alice", "a\x00", "", false},
-			{"clients/%c/#", "alice", "", "", false},
-			{"users/%u", "", "dev1", "", false},
-			{"users/%u", "a+", "dev1", "", false},
+			// A used value with + or # is rejected. An empty value or one with / or NUL is skipped.
+			{"clients/%c/#", "alice", "+", "", Reject},
+			{"clients/%c/#", "alice", "#", "", Reject},
+			{"clients/%c/#", "alice", "a/b", "", Skip},
+			{"clients/%c/#", "alice", "a\x00", "", Skip},
+			{"clients/%c/#", "alice", "", "", Skip},
+			{"users/%u", "", "dev1", "", Skip},
+			{"users/%u", "a+", "dev1", "", Reject},
+			{"users/%u", "a/+", "dev1", "", Reject},
+
+			// A skipped value does not hide a wildcard in another value.
+			{"%c/%u/x", "+", "", "", Reject},
+			{"%u/%c/x", "", "+", "", Reject},
+			{"%c/%u/x", "", "", "", Skip},
 
 			// A value that the pattern does not use is not checked.
-			{"users/%u", "alice", "+", "users/alice", true},
+			{"users/%u", "alice", "+", "users/alice", Replaced},
 		}
 
 		for i, test := range tests {
 			got, ok := Substitute(test.pattern, test.username, test.clientid)
 			So(fmt.Sprintf("#%d %q %v", i, got, ok), ShouldEqual, fmt.Sprintf("#%d %q %v", i, test.want, test.ok))
 		}
-	})
-
-	Convey("With deny_special_chars false, Substitute should not check the values", t, func() {
-		SetOptions(map[string]string{"deny_special_chars": "false"})
-		defer SetOptions(map[string]string{})
-
-		got, ok := Substitute("clients/%c/#", "alice", "+")
-		So(ok, ShouldBeTrue)
-		So(got, ShouldEqual, "clients/+/#")
-
-		got, ok = Substitute("clients/%c/#", "alice", "")
-		So(ok, ShouldBeTrue)
-		So(got, ShouldEqual, "clients//#")
 	})
 }

@@ -182,8 +182,8 @@ func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 	}
 
 	for _, acl := range acls {
-		aclTopic, valid := topics.Substitute(acl, username, clientid)
-		if valid && topics.Match(aclTopic, topic) {
+		aclTopic, outcome := topics.Substitute(acl, username, clientid)
+		if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}

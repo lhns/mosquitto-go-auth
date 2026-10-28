@@ -262,8 +262,8 @@ func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	}
 
 	for _, acl := range acls {
-		aclTopic, valid := topics.Substitute(acl, username, clientid)
-		if valid && topics.Match(aclTopic, topic) {
+		aclTopic, outcome := topics.Substitute(acl, username, clientid)
+		if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}
