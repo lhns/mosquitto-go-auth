@@ -27,8 +27,6 @@ func (m *mockBackends) AuthAclCheck(ctx context.Context, clientid, username, top
 
 func (m *mockBackends) Halt() {}
 
-func (m *mockBackends) UsernameLoggable() bool { return true }
-
 func (m *mockBackends) LogUsername(username string) string { return username }
 
 var errBackendFailure = errors.New("simulated backend failure")

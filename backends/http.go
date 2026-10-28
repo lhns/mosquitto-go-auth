@@ -31,7 +31,6 @@ type HTTP struct {
 	Timeout       int
 	Client        *h.Client
 	CustomHeaders map[string]string
-	hideErrors    bool // a jwt backend is configured: the request error can echo the token
 }
 
 type HTTPResponse struct {
@@ -51,7 +50,6 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		ParamsMode:    "json",
 		httpMethod:    h.MethodPost,
 		CustomHeaders: map[string]string{},
-		hideErrors:    jwtConfigured(authOpts),
 	}
 
 	missingOpts := ""
@@ -284,10 +282,6 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 	resp, err = o.Client.Do(req)
 
 	if err != nil {
-		if o.hideErrors {
-			// The error can hold a URL with the token (for example after a redirect).
-			err = requestError("http", err)
-		}
 		log.Errorf("http request error: %s", err)
 		return false, err
 	}
@@ -297,10 +291,6 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		if o.hideErrors {
-			// The error can quote the response, which can echo the token.
-			err = errors.New("http: response could not be read")
-		}
 		log.Errorf("read error: %s", err)
 		return false, err
 	}
@@ -317,7 +307,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("http check denied, status %d", resp.StatusCode)
+			log.Infof("api error: %s", string(body))
 			return false, nil
 		}
 
@@ -333,13 +323,13 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			log.Infof("http check denied, status %d", resp.StatusCode)
+			log.Infof("api error: %s", response.Error)
 			return false, nil
 		}
 
 	}
 
-	log.Debug("http request approved")
+	log.Debugf("http request approved for %s", username)
 	return true, nil
 
 }

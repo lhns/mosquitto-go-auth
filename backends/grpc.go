@@ -17,9 +17,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/status"
 )
 
 // GRPC holds a client for the service and implements the Backend interface.
@@ -31,7 +29,6 @@ type GRPC struct {
 	hostname         string
 	timeout          int
 	name             string
-	hideErrors       bool // a jwt backend is configured: the error text can echo the token
 }
 
 const defaultGRPCTimeoutMs = 500
@@ -39,8 +36,7 @@ const defaultGRPCTimeoutMs = 500
 // NewGRPC tries to connect to the gRPC service at the given host.
 func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	g := &GRPC{
-		timeout:    defaultGRPCTimeoutMs,
-		hideErrors: jwtConfigured(authOpts),
+		timeout: defaultGRPCTimeoutMs,
 	}
 
 	if authOpts["grpc_host"] == "" || authOpts["grpc_port"] == "" {
@@ -67,7 +63,7 @@ func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	addr := fmt.Sprintf("%s:%s", authOpts["grpc_host"], authOpts["grpc_port"])
 	withBlock := authOpts["grpc_fail_on_dial_error"] == "true"
 
-	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock, g.hideErrors)
+	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +90,6 @@ func (o *GRPC) GetUser(username, password, clientid string) (bool, error) {
 	resp, err := o.client.GetUser(context.Background(), &req)
 
 	if err != nil {
-		err = o.callError(err)
 		log.Errorf("grpc get user error: %s", err)
 		return false, err
 	}
@@ -116,7 +111,6 @@ func (o *GRPC) GetSuperuser(username string) (bool, error) {
 	resp, err := o.client.GetSuperuser(context.Background(), &req)
 
 	if err != nil {
-		err = o.callError(err)
 		log.Errorf("grpc get superuser error: %s", err)
 		return false, err
 	}
@@ -137,7 +131,6 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	resp, err := o.client.CheckAcl(context.Background(), &req)
 
 	if err != nil {
-		err = o.callError(err)
 		log.Errorf("grpc check acl error: %s", err)
 		return false, err
 	}
@@ -173,17 +166,10 @@ func (o *GRPC) Halt() {
 	}
 }
 
-func setup(hostname string, caCert string, tlsCert string, tlsKey string, withBlock bool, hideErrors bool) ([]grpc.DialOption, error) {
+func setup(hostname string, caCert string, tlsCert string, tlsKey string, withBlock bool) ([]grpc.DialOption, error) {
 	logrusEntry := log.NewEntry(log.StandardLogger())
 	logrusOpts := []grpc_logrus.Option{
 		grpc_logrus.WithLevels(grpc_logrus.DefaultCodeToLevel),
-	}
-	if hideErrors {
-		// The call log keeps the code but not the error, whose text comes from the remote server.
-		logrusOpts = append(logrusOpts, grpc_logrus.WithMessageProducer(
-			func(ctx context.Context, format string, level log.Level, code codes.Code, _ error, fields log.Fields) {
-				grpc_logrus.DefaultMessageProducer(ctx, format, level, code, nil, fields)
-			}))
 	}
 
 	nsOpts := []grpc.DialOption{
@@ -245,13 +231,4 @@ func (g *GRPC) initClient() error {
 	g.client = gs.NewAuthServiceClient(gsClient)
 
 	return nil
-}
-
-// callError gives the error of a call. With a jwt backend the status message, which comes from the
-// remote server and can echo the token, is replaced by the status code only.
-func (o *GRPC) callError(err error) error {
-	if o.hideErrors {
-		return fmt.Errorf("grpc: call failed: %s", status.Code(err))
-	}
-	return err
 }

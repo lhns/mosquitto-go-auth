@@ -24,7 +24,6 @@ import (
 type BackendsChecker interface {
 	AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error)
 	AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error)
-	UsernameLoggable() bool
 	LogUsername(username string) string
 	Halt()
 }
@@ -336,10 +335,15 @@ func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
 	return AuthRejected
 }
 
-// clientIDLoggable tells if the client ID may appear in spans. With a JWT backend and
-// use_clientid_as_username the client ID carries the token, so it is hidden as the user name is.
-func clientIDLoggable() bool {
-	return authPlugin.backends.UsernameLoggable() || !authPlugin.useClientidAsUsername
+// usernameLoggable tells if a username may appear in spans: with a JWT backend it can be a token.
+func usernameLoggable(username string) bool {
+	return authPlugin.backends.LogUsername(username) == username
+}
+
+// clientIDLoggable tells if the client ID may appear in spans. With use_clientid_as_username
+// it carries the username, so it is hidden as the username is.
+func clientIDLoggable(clientid string) bool {
+	return !authPlugin.useClientidAsUsername || usernameLoggable(clientid)
 }
 
 func authUnpwdCheck(username, password, clientid string) (authenticated bool, err error) {
@@ -349,10 +353,10 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 	username = setUsername(username, clientid)
 
 	var attrs []attribute.KeyValue
-	if clientIDLoggable() {
+	if clientIDLoggable(clientid) {
 		attrs = append(attrs, attribute.String("auth.client_id", clientid))
 	}
-	if authPlugin.backends.UsernameLoggable() {
+	if usernameLoggable(username) {
 		attrs = append(attrs, attribute.String("auth.username", username))
 	}
 	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check", trace.WithAttributes(attrs...))
@@ -435,10 +439,10 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		attribute.String("auth.topic", topic),
 		attribute.Int("auth.access", acc),
 	}
-	if clientIDLoggable() {
+	if clientIDLoggable(clientid) {
 		attrs = append(attrs, attribute.String("auth.client_id", clientid))
 	}
-	if authPlugin.backends.UsernameLoggable() {
+	if usernameLoggable(username) {
 		attrs = append(attrs, attribute.String("auth.username", username))
 	}
 	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check", trace.WithAttributes(attrs...))

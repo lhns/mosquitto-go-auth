@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//Sqlite holds all fields of the sqlite db connection.
+// Sqlite holds all fields of the sqlite db connection.
 type Sqlite struct {
 	DB             *sqlx.DB
 	Source         string
@@ -21,7 +21,7 @@ type Sqlite struct {
 	SuperuserQuery string
 	AclQuery       string
 	hasher         hashing.HashComparer
-	hideErrors     bool // a jwt backend is configured: the driver text can quote the token
+	hideToken      bool // a jwt backend is configured: the username can be a token
 	maxLifeTime    int64
 
 	connectTries int
@@ -37,7 +37,6 @@ func NewSqlite(authOpts map[string]string, logLevel log.Level, hasher hashing.Ha
 	missingOptions := ""
 
 	var sqlite = Sqlite{
-		hideErrors:     jwtConfigured(authOpts),
 		SuperuserQuery: "",
 		AclQuery:       "",
 		hasher:         hasher,
@@ -105,7 +104,7 @@ func NewSqlite(authOpts map[string]string, logLevel log.Level, hasher hashing.Ha
 
 }
 
-//GetUser checks that the username exists and the given password hashes to the same password.
+// GetUser checks that the username exists and the given password hashes to the same password.
 func (o Sqlite) GetUser(username, password, clientid string) (bool, error) {
 
 	var pwHash sql.NullString
@@ -117,13 +116,13 @@ func (o Sqlite) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
-		err = queryError(o.hideErrors, "sqlite: query failed", err)
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("SQlite get user error: %s", err)
 		return false, err
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("SQlite get user error: user not found")
+		log.Debugf("SQlite get user error: user %s not found", logUsername(o.hideToken, username))
 		return false, nil
 	}
 
@@ -135,7 +134,7 @@ func (o Sqlite) GetUser(username, password, clientid string) (bool, error) {
 
 }
 
-//GetSuperuser checks that the username meets the superuser query.
+// GetSuperuser checks that the username meets the superuser query.
 func (o Sqlite) GetSuperuser(username string) (bool, error) {
 
 	//If there's no superuser query, return false.
@@ -152,13 +151,13 @@ func (o Sqlite) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
-		err = queryError(o.hideErrors, "sqlite: query failed", err)
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("sqlite get superuser error: %s", err)
 		return false, err
 	}
 
 	if !count.Valid {
-		log.Debugf("sqlite get superuser error: user not found")
+		log.Debugf("sqlite get superuser error: user %s not found", logUsername(o.hideToken, username))
 		return false, nil
 	}
 
@@ -170,7 +169,7 @@ func (o Sqlite) GetSuperuser(username string) (bool, error) {
 
 }
 
-//CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
+// CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
 func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
 	//If there's no acl query, assume all privileges for all users.
 	if o.AclQuery == "" {
@@ -182,7 +181,7 @@ func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
-		err = queryError(o.hideErrors, "sqlite: query failed", err)
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("sqlite check acl error: %s", err)
 		return false, err
 	}
@@ -199,12 +198,12 @@ func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o Sqlite) GetName() string {
 	return "Sqlite"
 }
 
-//Halt closes the mysql connection.
+// Halt closes the mysql connection.
 func (o Sqlite) Halt() {
 	if o.DB != nil {
 		err := o.DB.Close()

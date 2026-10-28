@@ -30,7 +30,7 @@ type LDAP struct {
 	SuperuserFilter          string
 	AclTopicPatternAttribute string
 	AclAccAttribute          string
-	hideErrors               bool // a jwt backend is configured: the server text can quote the token
+	hideToken                bool // a jwt backend is configured: the username can be a token
 }
 
 func NewLDAP(authOpts map[string]string, logLevel log.Level) (*LDAP, error) {
@@ -52,7 +52,6 @@ func NewLDAPWithFactory(authOpts map[string]string, logLevel log.Level, ldapClie
 
 	var l = LDAP{
 		factory:                  ldapClientFactory,
-		hideErrors:               jwtConfigured(authOpts),
 		Url:                      "ldap://localhost:389",
 		GroupDN:                  "",
 		GroupFilter:              "(member=%s)",
@@ -188,7 +187,7 @@ func (l *LDAP) GetUser(username, password, clientid string) (bool, error) {
 			_ = l.reconnectLDAP()
 		}
 
-		err = queryError(l.hideErrors, "ldap: search failed", err)
+		err = hideToken(l.hideToken, err, username)
 		log.Errorf("LDAP user search error: %s", err)
 		return false, err
 	}
@@ -260,7 +259,7 @@ func (l *LDAP) GetSuperuser(username string) (bool, error) {
 			_ = l.reconnectLDAP()
 		}
 
-		err = queryError(l.hideErrors, "ldap: search failed", err)
+		err = hideToken(l.hideToken, err, username)
 		log.Errorf("LDAP superuser search error: %s", err)
 		return false, err
 	}
@@ -322,7 +321,7 @@ func (l *LDAP) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 			_ = l.reconnectLDAP()
 		}
 
-		err = queryError(l.hideErrors, "ldap: search failed", err)
+		err = hideToken(l.hideToken, err, username)
 		log.Errorf("LDAP acl search error: %s", err)
 		return false, err
 	}

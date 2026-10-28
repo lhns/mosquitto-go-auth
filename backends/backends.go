@@ -15,6 +15,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// hiddenUsername stands for a username that must not appear in logs and errors.
+const hiddenUsername = "<hidden>"
+
 type Backend interface {
 	GetUser(username, password, clientid string) (bool, error)
 	GetSuperuser(username string) (bool, error)
@@ -119,7 +122,11 @@ func Initialize(authOpts map[string]string, logLevel log.Level, version string) 
 		}
 	}
 
-	b.jwtConfigured = jwtConfigured(authOpts)
+	for _, backend := range backends {
+		if backend == jwtBackend {
+			b.jwtConfigured = true
+		}
+	}
 
 	err := b.addBackends(authOpts, logLevel, backends, version)
 	if err != nil {
@@ -159,7 +166,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("backend registered: %s", beIface.GetName())
-				b.backends[postgresBackend] = beIface.(Postgres)
+				be := beIface.(Postgres)
+				be.hideToken = b.jwtConfigured
+				b.backends[postgresBackend] = be
 			}
 		case jwtBackend:
 			beIface, err = NewJWT(authOpts, logLevel, hasher, version)
@@ -191,7 +200,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[mysqlBackend] = beIface.(Mysql)
+				be := beIface.(Mysql)
+				be.hideToken = b.jwtConfigured
+				b.backends[mysqlBackend] = be
 			}
 		case httpBackend:
 			beIface, err = NewHTTP(authOpts, logLevel, version)
@@ -207,7 +218,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[sqliteBackend] = beIface.(Sqlite)
+				be := beIface.(Sqlite)
+				be.hideToken = b.jwtConfigured
+				b.backends[sqliteBackend] = be
 			}
 		case mongoBackend:
 			beIface, err = NewMongo(authOpts, logLevel, hasher)
@@ -239,7 +252,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[ldapBackend] = beIface.(*LDAP)
+				be := beIface.(*LDAP)
+				be.hideToken = b.jwtConfigured
+				b.backends[ldapBackend] = be
 			}
 		case pluginBackend:
 			beIface, err = NewCustomPlugin(authOpts, logLevel)
@@ -305,38 +320,27 @@ func (b *Backends) setCheckers(authOpts map[string]string) error {
 	return nil
 }
 
-// jwtConfigured tells if the jwt backend is in the backends option. Then a username can be a token,
-// and the text of a remote error (gRPC, HTTP, script) can echo it.
-func jwtConfigured(authOpts map[string]string) bool {
-	for _, backend := range strings.Split(strings.Replace(authOpts["backends"], " ", "", -1), ",") {
-		if backend == jwtBackend {
-			return true
-		}
-	}
-	return false
-}
-
-// queryError gives the error of a database or directory query. When hide is set, the driver or
-// server text, which can quote the username (a token with a jwt backend), is replaced by text.
-func queryError(hide bool, text string, err error) error {
-	if !hide {
+// hideToken replaces the username in the text of an error. With a jwt backend the username can be
+// a token, and a database or directory error can quote it (for example the cast error of a uuid column).
+// Without a jwt backend the error is returned unchanged.
+func hideToken(hide bool, err error, username string) error {
+	if !hide || err == nil || username == "" || !strings.Contains(err.Error(), username) {
 		return err
 	}
-	return errors.New(text)
+	return errors.New(strings.ReplaceAll(err.Error(), username, hiddenUsername))
 }
 
-// UsernameLoggable tells if usernames may appear in logs and spans.
-// With a JWT backend the username can be a token, so it is never shown.
-func (b *Backends) UsernameLoggable() bool {
-	return !b.jwtConfigured
+// logUsername returns the username for debug logs, or a placeholder when hide is set.
+func logUsername(hide bool, username string) string {
+	if hide {
+		return hiddenUsername
+	}
+	return username
 }
 
 // LogUsername returns the username for debug logs, or a placeholder when it must not be shown.
 func (b *Backends) LogUsername(username string) string {
-	if b.jwtConfigured {
-		return "<hidden>"
-	}
-	return username
+	return logUsername(b.jwtConfigured, username)
 }
 
 // setPrefixes sets options for prefixes handling.

@@ -355,7 +355,7 @@ func (o *Checker) GetUser(username, password, clientid string) (bool, error) {
 		return true, nil
 	}
 
-	log.Warn("wrong password")
+	log.Warnf("wrong password for user %s", username)
 
 	return false, nil
 

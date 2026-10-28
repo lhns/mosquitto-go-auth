@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	h "net/http"
 	"net/url"
 	"regexp"
@@ -323,9 +322,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	resp, err = o.client.Do(req)
 
 	if err != nil {
-		// The error can hold a URL with the token (for example after a redirect), so it is not used.
-		err = requestError("jwt remote", err)
-		log.Error(err)
+		log.Errorf("error: %v", err)
 		return false, err
 	}
 
@@ -334,9 +331,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		// The error can quote the response, which can hold the token, so it is not used.
-		err = errors.New("jwt remote: response could not be read")
-		log.Error(err)
+		log.Errorf("read error: %s", err)
 		return false, err
 	}
 
@@ -352,7 +347,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("remote check denied")
+			log.Infof("api error: %s", strings.ReplaceAll(string(body), token, hiddenUsername))
 			return false, nil
 		}
 
@@ -368,7 +363,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		}
 
 		if !response.Ok {
-			log.Infof("remote check denied")
+			log.Infof("api error: %s", strings.ReplaceAll(response.Error, token, hiddenUsername))
 			return false, nil
 		}
 
@@ -391,7 +386,8 @@ func (o *remoteJWTChecker) getHost(token string) (string, error) {
 
 	iss, err := getIssForToken(o.options, token, o.options.skipUserExpiration)
 	if err != nil {
-		return "", errors.New("cannot obtain host for the authorization request from token")
+		errorString := fmt.Sprintf("cannot obtain host for the authorization request from token %s: %s", hiddenUsername, err)
+		return "", errors.New(errorString)
 	}
 
 	if !o.isHostWhitelisted(iss) {
@@ -413,14 +409,4 @@ func (o *remoteJWTChecker) isHostWhitelisted(host string) bool {
 		}
 	}
 	return false
-}
-
-// requestError gives a fixed text for a failed HTTP request: the category only, never the URL or
-// the text of the remote side.
-func requestError(prefix string, err error) error {
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return errors.New(prefix + ": request timed out")
-	}
-	return errors.New(prefix + ": request failed")
 }
