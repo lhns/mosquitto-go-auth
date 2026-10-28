@@ -157,6 +157,13 @@ func TestMongoRaw(t *testing.T) {
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
 		})
+		Convey("Given a client ID that is empty or has a wildcard, a pattern should not apply", func() {
+			for _, id := range []string{"+", "#", "a/b", ""} {
+				tt1, err1 := mongo.CheckAcl(username1, "pattern/other_client", id, MOSQ_ACL_READ)
+				So(err1, ShouldBeNil)
+				So(tt1, ShouldBeFalse)
+			}
+		})
 		Convey("Given a topic not strictly present that matches a db single level wildcard, acl check should pass", func() {
 			tt1, err1 := mongo.CheckAcl(username1, "single/topic/whatever", clientID, MOSQ_ACL_READ)
 			So(err1, ShouldBeNil)

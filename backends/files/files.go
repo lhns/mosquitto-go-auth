@@ -448,15 +448,14 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	}
 
 	for _, aclRecord := range s.aclRecords {
-		aclTopic := strings.Replace(aclRecord.topic, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
+		if aclRecord.acc != MOSQ_ACL_DENY {
+			continue
+		}
 
-		match := topics.Match(aclTopic, topic)
-
-		if match {
-			if aclRecord.acc == MOSQ_ACL_DENY {
-				return false, nil
-			}
+		// A deny rule with a wildcard in a placeholder value denies the request. A rule with an empty value or one with / or NUL does not apply.
+		aclTopic, outcome := topics.Substitute(aclRecord.topic, username, clientid)
+		if outcome == topics.Reject || (outcome == topics.Replaced && topics.Match(aclTopic, topic)) {
+			return false, nil
 		}
 	}
 
@@ -473,13 +472,10 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 		}
 	}
 	for _, aclRecord := range s.aclRecords {
-		// Replace all occurrences of %c for clientid and %u for username
-		aclTopic := strings.Replace(aclRecord.topic, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
+		// Replace %c with clientid and %u with username. A rule whose placeholder value is not usable does not apply.
+		aclTopic, outcome := topics.Substitute(aclRecord.topic, username, clientid)
 
-		match := topics.Match(aclTopic, topic)
-
-		if match {
+		if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 			if acc == int32(aclRecord.acc) || int32(aclRecord.acc) == MOSQ_ACL_READWRITE || (acc == MOSQ_ACL_SUBSCRIBE && topic != "#" && (int32(aclRecord.acc) == MOSQ_ACL_READ || int32(aclRecord.acc) == MOSQ_ACL_SUBSCRIBE)) {
 				return true, nil
 			}

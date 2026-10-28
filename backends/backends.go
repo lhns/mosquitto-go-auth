@@ -81,7 +81,6 @@ var allowedBackendsOptsPrefix = map[string]string{
 
 // Initialize sets general options, tries to build the backends and register their checkers.
 func Initialize(authOpts map[string]string, logLevel log.Level, version string) (*Backends, error) {
-
 	b := &Backends{
 		backends:          make(map[string]Backend),
 		aclCheckers:       make([]string, 0),

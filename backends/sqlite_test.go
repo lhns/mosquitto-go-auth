@@ -198,6 +198,14 @@ func TestFileSqlite(t *testing.T) {
 			So(tt1, ShouldBeTrue)
 		})
 
+		Convey("Given a client ID that is empty or has a wildcard, a pattern should not apply", func() {
+			for _, id := range []string{"+", "#", "a/b", ""} {
+				tt1, err1 := sqlite.CheckAcl(username, "test/other_client", id, MOSQ_ACL_READ)
+				So(err1, ShouldBeNil)
+				So(tt1, ShouldBeFalse)
+			}
+		})
+
 		//Now insert single level topic to check against.
 
 		_, err = sqlite.DB.Exec(aclQuery, userID, singleLevelAcl, MOSQ_ACL_READ)
@@ -383,6 +391,14 @@ func TestMemorySqlite(t *testing.T) {
 			tt1, err1 := sqlite.CheckAcl(username, "test/test_client", clientID, MOSQ_ACL_READ)
 			So(err1, ShouldBeNil)
 			So(tt1, ShouldBeTrue)
+		})
+
+		Convey("Given a client ID that is empty or has a wildcard, a pattern should not apply", func() {
+			for _, id := range []string{"+", "#", "a/b", ""} {
+				tt1, err1 := sqlite.CheckAcl(username, "test/other_client", id, MOSQ_ACL_READ)
+				So(err1, ShouldBeNil)
+				So(tt1, ShouldBeFalse)
+			}
 		})
 
 		//Now insert single level topic to check against.

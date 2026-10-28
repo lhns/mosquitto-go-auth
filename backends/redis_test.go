@@ -120,6 +120,13 @@ func testRedis(ctx context.Context, t *testing.T, authOpts map[string]string) {
 	assert.Nil(t, err1)
 	assert.True(t, tt1)
 
+	// A client ID that is empty or has a wildcard does not apply to a pattern.
+	for _, id := range []string{"+", "#", "a/b", ""} {
+		tt1, err1 = redis.CheckAcl(username, "test/other_client", id, MOSQ_ACL_READ)
+		assert.Nil(t, err1)
+		assert.False(t, tt1)
+	}
+
 	redis.conn.SAdd(ctx, username+":racls", singleLevelAcl)
 	tt1, err1 = redis.CheckAcl(username, "test/topic/whatever", clientID, MOSQ_ACL_READ)
 	assert.Nil(t, err1)

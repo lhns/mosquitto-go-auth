@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"strings"
 	"time"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
@@ -241,9 +240,8 @@ func (o Mongo) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 		var acl MongoAcl
 		err = cur.Decode(&acl)
 		if err == nil {
-			aclTopic := strings.Replace(acl.Topic, "%c", clientid, -1)
-			aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-			if topics.Match(aclTopic, topic) {
+			aclTopic, outcome := topics.Substitute(acl.Topic, username, clientid)
+			if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 				return true, nil
 			}
 		} else {

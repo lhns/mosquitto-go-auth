@@ -77,6 +77,23 @@ func TestTopicsMatch(t *testing.T) {
 			// Topic with empty segments
 			{"a//c", "a//c", true},
 			{"a/+/c", "a//c", true},
+
+			// A topic that starts with $ is not matched by + or # at the first level
+			{"#", "$SYS/broker/uptime", false},
+			{"#", "$SYS", false},
+			{"+/x", "$private/x", false},
+			{"+", "$", false},
+			{"#", "$SYS/#", false},
+			{"+/#", "$SYS/#", false},
+			{"$SYS/#", "$SYS/broker/uptime", true},
+			{"$SYS/+/uptime", "$SYS/broker/uptime", true},
+			{"$SYS/#", "$SYS/#", true},
+			{"a/#", "a/$x", true},
+			{"+/+", "a/$x", true},
+
+			// A shared subscription filter keeps the plain matching
+			{"#", "$share/g/a/b", true},
+			{"+/g/#", "$share/g/a", true},
 		}
 
 		for i, test := range tests {
@@ -89,6 +106,52 @@ func TestTopicsMatch(t *testing.T) {
 
 				So(result, ShouldEqual, test.expected)
 			})
+		}
+	})
+}
+
+func TestSubstitute(t *testing.T) {
+	Convey("Substitute should replace %u and %c in one pass and check the values", t, func() {
+		tests := []struct {
+			pattern  string
+			username string
+			clientid string
+			want     string
+			ok       Outcome
+		}{
+			{"a/b", "", "", "a/b", Replaced},
+			{"users/%u/%c", "alice", "dev1", "users/alice/dev1", Replaced},
+			{"%u/%u", "alice", "", "alice/alice", Replaced},
+			{"%c%u", "x", "y", "yx", Replaced},
+			{"a/%x/%", "u", "c", "a/%x/%", Replaced},
+			{"a/%%u", "alice", "c", "a/%alice", Replaced},
+
+			// A value is not scanned again.
+			{"a/%u", "%c", "dev1", "a/%c", Replaced},
+			{"a/%c", "alice", "%u", "a/%u", Replaced},
+
+			// A used value with + or # is rejected. An empty value or one with / or NUL is skipped.
+			{"clients/%c/#", "alice", "+", "", Reject},
+			{"clients/%c/#", "alice", "#", "", Reject},
+			{"clients/%c/#", "alice", "a/b", "", Skip},
+			{"clients/%c/#", "alice", "a\x00", "", Skip},
+			{"clients/%c/#", "alice", "", "", Skip},
+			{"users/%u", "", "dev1", "", Skip},
+			{"users/%u", "a+", "dev1", "", Reject},
+			{"users/%u", "a/+", "dev1", "", Reject},
+
+			// A skipped value does not hide a wildcard in another value.
+			{"%c/%u/x", "+", "", "", Reject},
+			{"%u/%c/x", "", "+", "", Reject},
+			{"%c/%u/x", "", "", "", Skip},
+
+			// A value that the pattern does not use is not checked.
+			{"users/%u", "alice", "+", "users/alice", Replaced},
+		}
+
+		for i, test := range tests {
+			got, ok := Substitute(test.pattern, test.username, test.clientid)
+			So(fmt.Sprintf("#%d %q %v", i, got, ok), ShouldEqual, fmt.Sprintf("#%d %q %v", i, test.want, test.ok))
 		}
 	})
 }
