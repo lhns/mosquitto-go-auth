@@ -365,7 +365,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 	if authPlugin.useCache {
 		log.WithContext(ctx).Debugf("checking auth cache for %s", username)
 		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
-		if cached {
+		if cached && !cacheExpired(username, false) {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
 			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
@@ -377,7 +377,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
-	if authPlugin.useCache && err == nil {
+	if authPlugin.useCache && err == nil && !cacheExpired(username, false) {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
@@ -442,7 +442,7 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 	if authPlugin.useCache {
 		log.WithContext(ctx).Debugf("checking acl cache for %s", username)
 		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
-		if cached {
+		if cached && !cacheExpired(username, true) {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
 			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
@@ -454,7 +454,7 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
-	if authPlugin.useCache && err == nil {
+	if authPlugin.useCache && err == nil && !cacheExpired(username, true) {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
@@ -468,6 +468,20 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, username)
 	return aclCheck, err
+}
+
+// cacheExpired tells if a cache entry for username must not be used or stored, because the
+// username is a JWT and its exp has passed. A cache hit after exp is a miss.
+func cacheExpired(username string, acl bool) bool {
+	b, ok := authPlugin.backends.(interface {
+		CacheDeadline(username string, acl bool) (time.Time, bool)
+	})
+	if !ok {
+		return false
+	}
+	deadline, capped := b.CacheDeadline(username, acl)
+
+	return capped && !time.Now().Before(deadline)
 }
 
 // authResult maps (ok, err) into a result label used on spans and metrics.
