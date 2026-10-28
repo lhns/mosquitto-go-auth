@@ -132,13 +132,18 @@ func (o *Checker) watchSignals() {
 }
 
 // Reload reads the files again. On failure it keeps the last good data, logs a warning and returns the error.
-func (o *Checker) Reload() error {
-	err := o.loadStaticFiles(true)
-	if err != nil {
-		log.Warnf("[StaticFiles] reload failed, keeping the last good files: %s", err)
-	}
+// A panic in the parser is also an error, so a reload never stops the broker.
+func (o *Checker) Reload() (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = errors.Errorf("panic (%T)", p)
+		}
+		if err != nil {
+			log.Warnf("[StaticFiles] reload failed, keeping the last good files: %s", err)
+		}
+	}()
 
-	return err
+	return o.loadStaticFiles(true)
 }
 
 // loadStaticFiles reads both files into a new snapshot and publishes it only when both reads succeed.

@@ -96,6 +96,11 @@ func TestFilesReload(t *testing.T) {
 			So(login("alice", "alice"), ShouldBeTrue)
 			So(allowed("bob", "shared/x"), ShouldBeTrue)
 
+			// A line with only a tab makes the parser panic. The reload returns an error.
+			write(aclPath, "user alice\n\t\n")
+			So(files.Reload(), ShouldNotBeNil)
+			So(login("bob", "bob"), ShouldBeTrue)
+
 			So(os.Remove(pwPath), ShouldBeNil)
 			So(files.Reload(), ShouldNotBeNil)
 			So(login("bob", "bob"), ShouldBeTrue)
