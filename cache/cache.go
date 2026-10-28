@@ -2,7 +2,6 @@ package cache
 
 import (
 	"context"
-	"crypto/hkdf"
 	"crypto/hmac"
 	crand "crypto/rand"
 	"crypto/sha256"
@@ -77,7 +76,7 @@ func NewGoStore(authExpiration, aclExpiration, authJitter, aclJitter time.Durati
 }
 
 // NewSingleRedisStore initializes a cache using a single Redis instance as the store.
-func NewSingleRedisStore(host, port, password string, db int, authExpiration, aclExpiration, authJitter, aclJitter time.Duration, refreshExpiration bool) *redisStore {
+func NewSingleRedisStore(host, port, password, keySecret string, db int, authExpiration, aclExpiration, authJitter, aclJitter time.Duration, refreshExpiration bool) *redisStore {
 	addr := fmt.Sprintf("%s:%s", host, port)
 	redisClient := goredis.NewClient(&goredis.Options{
 		Addr:     addr,
@@ -92,11 +91,12 @@ func NewSingleRedisStore(host, port, password string, db int, authExpiration, ac
 		aclJitter:         aclJitter,
 		refreshExpiration: refreshExpiration,
 		client:            &bes.SingleRedisClient{Client: redisClient},
+		keys:              keyerFromSecret(keySecret),
 	}
 }
 
 // NewSingleRedisStore initializes a cache using a Redis Cluster as the store.
-func NewRedisClusterStore(password string, addresses []string, authExpiration, aclExpiration, authJitter, aclJitter time.Duration, refreshExpiration bool) *redisStore {
+func NewRedisClusterStore(password, keySecret string, addresses []string, authExpiration, aclExpiration, authJitter, aclJitter time.Duration, refreshExpiration bool) *redisStore {
 	clusterClient := goredis.NewClusterClient(
 		&goredis.ClusterOptions{
 			Addrs:    addresses,
@@ -110,6 +110,7 @@ func NewRedisClusterStore(password string, addresses []string, authExpiration, a
 		aclJitter:         aclJitter,
 		refreshExpiration: refreshExpiration,
 		client:            clusterClient,
+		keys:              keyerFromSecret(keySecret),
 	}
 }
 
@@ -117,10 +118,9 @@ func NewRedisClusterStore(password string, addresses []string, authExpiration, a
 // The digest is HMAC-SHA-256 over the domain tag followed by every field as uvarint length + bytes,
 // so field boundaries are unambiguous. The HMAC key is secret, so a reader of the key space
 // (Redis KEYS, a backup) cannot test password guesses without it. The Go store uses a random key
-// of each process. The Redis store uses cache_key_secret, or a key derived from cache_password; when
-// neither is set, the digest is a plain SHA-256 (keyer without a key). Keys are computed per call.
+// of each process. The Redis store uses cache_key_secret; when it is not set, the digest is a plain
+// SHA-256 (keyer without a key). Keys are computed per call.
 // The "v5" namespace is separate from keys written by earlier versions.
-// An auth key has the mode field "n": the client ID is not part of the key.
 const keyPrefix = "mga:v5:"
 
 // keyer builds cache keys. An empty key gives a plain SHA-256 digest.
@@ -135,14 +135,9 @@ func newRandomKeyer() keyer {
 	return keyer{key: k}
 }
 
-// derivedKeyer returns a keyer with a key from HKDF-SHA256 over a secret that is also used for
-// another purpose (cache_password). The fixed label keeps this key apart from the password itself.
-func derivedKeyer(secret string) keyer {
-	k, err := hkdf.Key(sha256.New, []byte(secret), nil, "mosquitto-go-auth cache key v5", sha256.Size)
-	if err != nil {
-		return keyer{}
-	}
-	return keyer{key: k}
+// keyerFromSecret returns a keyer for cache_key_secret; an empty secret gives a plain SHA-256 digest.
+func keyerFromSecret(secret string) keyer {
+	return keyer{key: []byte(secret)}
 }
 
 func (kr keyer) cacheKey(domain string, fields ...string) string {
@@ -166,22 +161,6 @@ func (kr keyer) toAuthRecord(username, password string) string {
 
 func (kr keyer) toACLRecord(username, topic, clientid string, acc int) string {
 	return kr.cacheKey("acl", username, topic, clientid, strconv.Itoa(acc))
-}
-
-// SetKeySecret keys the digest of the cache keys of this store. Call it before the store is used.
-// It uses secret (cache_key_secret), or else a key derived from password (cache_password). It returns
-// false when both are empty: the digest is then a plain SHA-256. Brokers that share one Redis cache
-// need the same secret (or the same password).
-func (s *redisStore) SetKeySecret(secret, password string) (keyed bool) {
-	switch {
-	case secret != "":
-		s.keys = keyer{key: []byte(secret)}
-	case password != "":
-		s.keys = derivedKeyer(password)
-	default:
-		s.keys = keyer{}
-	}
-	return len(s.keys.key) > 0
 }
 
 // Checks if an error was caused by a moved record in a Redis Cluster.

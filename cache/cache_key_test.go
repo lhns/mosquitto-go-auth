@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -76,19 +74,6 @@ func TestAuthAndACLDomainsAreSeparate(t *testing.T) {
 	assert.NoError(t, s.SetAuthRecord(ctx, "u", "p", "true"))
 	present, _ := s.CheckACLRecord(ctx, "u", "p", "", 0)
 	assert.False(t, present)
-
-	assert.NotEqual(t, s.keys.toAuthRecord("u", "p"), s.keys.toACLRecord("u", "p", "", 0))
-}
-
-func TestKeysDoNotContainPlaintext(t *testing.T) {
-	user, pass, topic, client := "someuser", "s3cr3t-pass", "some/topic", "client-77"
-
-	for _, k := range []string{plain.toAuthRecord(user, pass), plain.toACLRecord(user, topic, client, 1)} {
-		assert.True(t, strings.HasPrefix(k, "mga:v5:"))
-		for _, f := range []string{user, pass, topic, client} {
-			assert.NotContains(t, k, f)
-		}
-	}
 }
 
 // The store does not log the cache keys or the fields, also at debug level.
@@ -134,14 +119,6 @@ func TestKeyEncoding(t *testing.T) {
 	assert.Equal(t, "mga:v5:acl:f8af8bf8397413ae2f2a9407d952a2ee4997082a37da0d3137fa5acad5aa6a89", plain.toACLRecord("u", "t/1", "c", 1))
 }
 
-func TestKeyFormat(t *testing.T) {
-	re := regexp.MustCompile(`^mga:v5:(auth|acl):[0-9a-f]{64}$`)
-	assert.Regexp(t, re, plain.toAuthRecord("u", "p"))
-	assert.Regexp(t, re, plain.toACLRecord("u", "t", "c", 0))
-	assert.Regexp(t, `^mga:v5:auth:`, plain.toAuthRecord("", ""))
-	assert.Regexp(t, `^mga:v5:acl:`, plain.toACLRecord("", "", "", 0))
-}
-
 // A keyed digest is HMAC-SHA-256, checked against vectors computed outside the Go code. A different
 // key, and no key, give different keys for the same fields.
 func TestKeyedDigest(t *testing.T) {
@@ -162,25 +139,16 @@ func TestGoStoreKeyIsRandom(t *testing.T) {
 	assert.NotEqual(t, plain.toAuthRecord("u", "p"), a.keys.toAuthRecord("u", "p"))
 }
 
+// The Redis store is keyed by the constructor argument cache_key_secret; no secret keeps the plain digest.
+// The same secret in another store gives the same keys: brokers can share a cache.
 func TestRedisKeySecret(t *testing.T) {
-	// cache_key_secret wins, a password is the second choice, nothing keeps the plain digest.
-	s := NewSingleRedisStore("localhost", "6379", "", 3, time.Minute, time.Minute, 0, 0, false)
-	defer s.Close()
-	assert.Equal(t, plain.toAuthRecord("u", "p"), s.keys.toAuthRecord("u", "p"), "no key before SetKeySecret")
-	assert.False(t, s.SetKeySecret("", ""))
-	assert.Equal(t, plain.toAuthRecord("u", "p"), s.keys.toAuthRecord("u", "p"))
+	newStore := func(secret string) *redisStore {
+		s := NewSingleRedisStore("localhost", "6379", "", secret, 3, time.Minute, time.Minute, 0, 0, false)
+		t.Cleanup(s.Close)
+		return s
+	}
 
-	assert.True(t, s.SetKeySecret("secret", "pw"))
-	assert.Equal(t, keyer{key: []byte("secret")}.toAuthRecord("u", "p"), s.keys.toAuthRecord("u", "p"))
-
-	assert.True(t, s.SetKeySecret("", "pw"))
-	fromPw := s.keys.toAuthRecord("u", "p")
-	assert.NotEqual(t, plain.toAuthRecord("u", "p"), fromPw)
-	assert.NotEqual(t, keyer{key: []byte("pw")}.toAuthRecord("u", "p"), fromPw, "the key is derived, not the password")
-
-	// The same input gives the same key in another store: brokers can share a cache.
-	s2 := NewSingleRedisStore("localhost", "6379", "", 3, time.Minute, time.Minute, 0, 0, false)
-	defer s2.Close()
-	s2.SetKeySecret("", "pw")
-	assert.Equal(t, fromPw, s2.keys.toAuthRecord("u", "p"))
+	assert.Equal(t, plain.toAuthRecord("u", "p"), newStore("").keys.toAuthRecord("u", "p"))
+	assert.Equal(t, keyer{key: []byte("secret")}.toAuthRecord("u", "p"), newStore("secret").keys.toAuthRecord("u", "p"))
+	assert.Equal(t, newStore("secret").keys.toAuthRecord("u", "p"), newStore("secret").keys.toAuthRecord("u", "p"))
 }

@@ -211,8 +211,8 @@ func TestAuthAclCheck_EmitsACLDuration(t *testing.T) {
 	require.Equal(t, "rejected", resultAttr(t, m))
 }
 
-// The Redis cache keys are keyed with cache_key_secret or cache_password. With neither, one warning
-// names the option. The secret is never in a log entry.
+// The Redis cache keys are keyed with cache_key_secret only: cache_password does not key them. Without
+// the secret, one warning names the option. The secret is never in a log entry.
 func TestRedisCacheKeySecretWarning(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -221,7 +221,7 @@ func TestRedisCacheKeySecretWarning(t *testing.T) {
 	}{
 		{"none", map[string]string{}, 1},
 		{"secret", map[string]string{"cache_key_secret": "s3cret-value"}, 0},
-		{"password", map[string]string{"cache_password": "pw-value"}, 0},
+		{"password only", map[string]string{"cache_password": "pw-value"}, 1},
 		{"both", map[string]string{"cache_key_secret": "s3cret-value", "cache_password": "pw-value"}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
