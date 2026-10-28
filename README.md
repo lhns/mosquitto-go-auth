@@ -372,6 +372,16 @@ auth_opt_cache_addresses host1:port1,host2:port2,host3:port3
 
 Notice that if `cache_mode` is not provided or isn't equal to `cluster`, cache will default to use a single instance with the common options. If instead the mode is set to `cluster` but no addresses are given, the plugin will default to not use a cache.
 
+##### Cache keys
+
+A cache key is a digest of its fields, with the form `mga:v5:<auth|acl>:<hex digest>`. The key does not contain the username, password, topic or client ID. Keys of earlier versions are not read, so after an upgrade the cache starts empty and the old entries expire.
+
+The in memory cache uses HMAC-SHA-256 with a random key for each process. The Redis cache uses HMAC-SHA-256 with the key `cache_key_secret`. When `cache_key_secret` is not set, the plugin derives the key from `cache_password`. When neither is set, the key is a plain SHA-256 digest and the plugin logs a warning at startup. Set the same `cache_key_secret` (or the same `cache_password`) on all brokers that share one Redis cache:
+
+```
+auth_opt_cache_key_secret a-long-random-value
+```
+
 #### Hashing
 
 There are 3 options for password hashing available: `PBKDF2` (default), `Bcrypt` and `Argon2ID`. Every backend that needs one -that's all but `grpc`, `http` and `custom`- gets a hasher and whether it uses specific options or general ones depends on the auth opts passed.

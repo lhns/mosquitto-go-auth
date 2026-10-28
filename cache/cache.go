@@ -2,10 +2,14 @@ package cache
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/hmac"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -25,6 +29,7 @@ type redisStore struct {
 	aclJitter         time.Duration
 	refreshExpiration bool
 	client            bes.RedisClient
+	keys              keyer
 }
 
 type goStore struct {
@@ -34,6 +39,7 @@ type goStore struct {
 	aclJitter         time.Duration
 	refreshExpiration bool
 	client            *ttlcache.Cache[string, bool]
+	keys              keyer
 }
 
 const (
@@ -66,6 +72,7 @@ func NewGoStore(authExpiration, aclExpiration, authJitter, aclJitter time.Durati
 		aclJitter:         aclJitter,
 		refreshExpiration: refreshExpiration,
 		client:            localCache,
+		keys:              newRandomKeyer(),
 	}
 }
 
@@ -106,15 +113,45 @@ func NewRedisClusterStore(password string, addresses []string, authExpiration, a
 	}
 }
 
-// Cache keys have the form "mga:v5:<domain>:<hex sha256>", where domain is "auth" or "acl".
-// The digest covers the domain tag followed by every field as uvarint length + bytes,
-// so field boundaries are unambiguous. Keys are computed per call and hold no shared state.
+// Cache keys have the form "mga:v5:<domain>:<hex digest>", where domain is "auth" or "acl".
+// The digest is HMAC-SHA-256 over the domain tag followed by every field as uvarint length + bytes,
+// so field boundaries are unambiguous. The HMAC key is secret, so a reader of the key space
+// (Redis KEYS, a backup) cannot test password guesses without it. The Go store uses a random key
+// of each process. The Redis store uses cache_key_secret, or a key derived from cache_password; when
+// neither is set, the digest is a plain SHA-256 (keyer without a key). Keys are computed per call.
 // The "v5" namespace is separate from keys written by earlier versions.
 // An auth key has the mode field "n": the client ID is not part of the key.
 const keyPrefix = "mga:v5:"
 
-func cacheKey(domain string, fields ...string) string {
-	h := sha256.New()
+// keyer builds cache keys. An empty key gives a plain SHA-256 digest.
+type keyer struct {
+	key []byte
+}
+
+// newRandomKeyer returns a keyer with a random 32-byte key.
+func newRandomKeyer() keyer {
+	k := make([]byte, sha256.Size)
+	_, _ = crand.Read(k) // never fails: a failure of the system source ends the process
+	return keyer{key: k}
+}
+
+// derivedKeyer returns a keyer with a key from HKDF-SHA256 over a secret that is also used for
+// another purpose (cache_password). The fixed label keeps this key apart from the password itself.
+func derivedKeyer(secret string) keyer {
+	k, err := hkdf.Key(sha256.New, []byte(secret), nil, "mosquitto-go-auth cache key v5", sha256.Size)
+	if err != nil {
+		return keyer{}
+	}
+	return keyer{key: k}
+}
+
+func (kr keyer) cacheKey(domain string, fields ...string) string {
+	var h hash.Hash
+	if len(kr.key) == 0 {
+		h = sha256.New()
+	} else {
+		h = hmac.New(sha256.New, kr.key)
+	}
 	for _, f := range append([]string{domain}, fields...) {
 		h.Write(binary.AppendUvarint(nil, uint64(len(f))))
 		h.Write([]byte(f))
@@ -123,12 +160,28 @@ func cacheKey(domain string, fields ...string) string {
 	return keyPrefix + domain + ":" + hex.EncodeToString(h.Sum(nil))
 }
 
-func toAuthRecord(username, password string) string {
-	return cacheKey("auth", "n", username, password)
+func (kr keyer) toAuthRecord(username, password string) string {
+	return kr.cacheKey("auth", "n", username, password)
 }
 
-func toACLRecord(username, topic, clientid string, acc int) string {
-	return cacheKey("acl", username, topic, clientid, strconv.Itoa(acc))
+func (kr keyer) toACLRecord(username, topic, clientid string, acc int) string {
+	return kr.cacheKey("acl", username, topic, clientid, strconv.Itoa(acc))
+}
+
+// SetKeySecret keys the digest of the cache keys of this store. Call it before the store is used.
+// It uses secret (cache_key_secret), or else a key derived from password (cache_password). It returns
+// false when both are empty: the digest is then a plain SHA-256. Brokers that share one Redis cache
+// need the same secret (or the same password).
+func (s *redisStore) SetKeySecret(secret, password string) (keyed bool) {
+	switch {
+	case secret != "":
+		s.keys = keyer{key: []byte(secret)}
+	case password != "":
+		s.keys = derivedKeyer(password)
+	default:
+		s.keys = keyer{}
+	}
+	return len(s.keys.key) > 0
 }
 
 // Checks if an error was caused by a moved record in a Redis Cluster.
@@ -193,13 +246,13 @@ func (s *redisStore) Close() {
 
 // CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
 func (s *goStore) CheckAuthRecord(ctx context.Context, username, password string) (bool, bool) {
-	record := toAuthRecord(username, password)
+	record := s.keys.toAuthRecord(username, password)
 	return s.checkRecord(ctx, record, expirationWithJitter(s.authExpiration, s.authJitter))
 }
 
 // CheckAclCache checks if the username/topic/clientid/acc mix is present in the cache. Return if it's present and, if so, if it was granted privileges.
 func (s *goStore) CheckACLRecord(ctx context.Context, username, topic, clientid string, acc int) (bool, bool) {
-	record := toACLRecord(username, topic, clientid, acc)
+	record := s.keys.toACLRecord(username, topic, clientid, acc)
 	return s.checkRecord(ctx, record, expirationWithJitter(s.aclExpiration, s.aclJitter))
 }
 
@@ -222,13 +275,13 @@ func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime
 
 // CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
 func (s *redisStore) CheckAuthRecord(ctx context.Context, username, password string) (bool, bool) {
-	record := toAuthRecord(username, password)
+	record := s.keys.toAuthRecord(username, password)
 	return s.checkRecord(ctx, record, s.authExpiration)
 }
 
 // CheckAclCache checks if the username/topic/clientid/acc mix is present in the cache. Return if it's present and, if so, if it was granted privileges.
 func (s *redisStore) CheckACLRecord(ctx context.Context, username, topic, clientid string, acc int) (bool, bool) {
-	record := toACLRecord(username, topic, clientid, acc)
+	record := s.keys.toACLRecord(username, topic, clientid, acc)
 	return s.checkRecord(ctx, record, s.aclExpiration)
 }
 
@@ -275,7 +328,7 @@ func (s *redisStore) getAndRefresh(ctx context.Context, record string, expiratio
 
 // SetAuthRecord sets a pair, granted option and expiration time.
 func (s *goStore) SetAuthRecord(ctx context.Context, username, password string, granted string) error {
-	record := toAuthRecord(username, password)
+	record := s.keys.toAuthRecord(username, password)
 	recordGranted := false
 
 	if granted == "true" {
@@ -289,7 +342,7 @@ func (s *goStore) SetAuthRecord(ctx context.Context, username, password string, 
 
 // SetAclCache sets a mix, granted option and expiration time.
 func (s *goStore) SetACLRecord(ctx context.Context, username, topic, clientid string, acc int, granted string) error {
-	record := toACLRecord(username, topic, clientid, acc)
+	record := s.keys.toACLRecord(username, topic, clientid, acc)
 	recordGranted := false
 
 	if granted == "true" {
@@ -303,13 +356,13 @@ func (s *goStore) SetACLRecord(ctx context.Context, username, topic, clientid st
 
 // SetAuthRecord sets a pair, granted option and expiration time.
 func (s *redisStore) SetAuthRecord(ctx context.Context, username, password string, granted string) error {
-	record := toAuthRecord(username, password)
+	record := s.keys.toAuthRecord(username, password)
 	return s.setRecord(ctx, record, granted, expirationWithJitter(s.authExpiration, s.authJitter))
 }
 
 // SetAclCache sets a mix, granted option and expiration time.
 func (s *redisStore) SetACLRecord(ctx context.Context, username, topic, clientid string, acc int, granted string) error {
-	record := toACLRecord(username, topic, clientid, acc)
+	record := s.keys.toACLRecord(username, topic, clientid, acc)
 	return s.setRecord(ctx, record, granted, expirationWithJitter(s.aclExpiration, s.aclJitter))
 }
 

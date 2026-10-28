@@ -251,7 +251,7 @@ func setCache(authOpts map[string]string) {
 				addresses[i] = strings.TrimSpace(addresses[i])
 			}
 
-			authPlugin.cache = cache.NewRedisClusterStore(
+			store := cache.NewRedisClusterStore(
 				password,
 				addresses,
 				time.Duration(authCacheSeconds)*time.Second,
@@ -260,6 +260,8 @@ func setCache(authOpts map[string]string) {
 				time.Duration(aclJitterSeconds)*time.Second,
 				refreshExpiration,
 			)
+			setRedisKeySecret(store, authOpts, password)
+			authPlugin.cache = store
 
 		} else {
 			if cacheHost, ok := authOpts["cache_host"]; ok {
@@ -279,7 +281,7 @@ func setCache(authOpts map[string]string) {
 				}
 			}
 
-			authPlugin.cache = cache.NewSingleRedisStore(
+			store := cache.NewSingleRedisStore(
 				host,
 				port,
 				password,
@@ -290,6 +292,8 @@ func setCache(authOpts map[string]string) {
 				time.Duration(aclJitterSeconds)*time.Second,
 				refreshExpiration,
 			)
+			setRedisKeySecret(store, authOpts, password)
+			authPlugin.cache = store
 		}
 
 	default:
@@ -308,6 +312,18 @@ func setCache(authOpts map[string]string) {
 		log.Infoln("couldn't start cache, defaulting to no cache")
 	}
 
+}
+
+// setRedisKeySecret keys the digest of the Redis cache keys with cache_key_secret or, when it is not
+// set, with a key derived from cache_password. With neither, one warning tells that the keys are a plain
+// SHA-256 digest. The secret is never logged.
+func setRedisKeySecret(store interface {
+	SetKeySecret(secret, password string) bool
+}, authOpts map[string]string, password string) {
+	if !store.SetKeySecret(authOpts["cache_key_secret"], password) {
+		log.Warn("the Redis cache keys are not keyed: set cache_key_secret (the same value on all brokers that share this cache) " +
+			"so that a reader of the Redis keys cannot test password guesses")
+	}
 }
 
 //export AuthUnpwdCheck
