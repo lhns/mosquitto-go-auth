@@ -1473,6 +1473,7 @@ Options for `ldap` are the following:
 | auth_opt_ldap_superuser_filter            | ""                   |     N     | LDAP Superuser Filter, `%s` will be a placeholder for the username |
 | auth_opt_ldap_acl_topic_pattern_attribute | ""                   |     N     | LDAP Attribute containing topic patterns                           |
 | auth_opt_ldap_acl_acc_attribute           | ""                   |     N     | LDAP Attribute containing the access level                         |
+| auth_opt_ldap_ca_cert                     | ""                   |     N     | PEM file with CA certificates for an `ldaps://` server. The system CAs stay trusted. |
 
 
 Default Config for `ldap` with [lldap](https://github.com/lldap/lldap):
