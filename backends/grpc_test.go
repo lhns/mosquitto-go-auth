@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/golang/protobuf/ptypes/empty"
 	gs "github.com/iegomez/mosquitto-go-auth/grpc"
@@ -121,7 +122,15 @@ func TestGRPC(t *testing.T) {
 					go grpcServer.Serve(lis)
 					defer grpcServer.Stop()
 
-					auth, err := g.GetUser(grpcUsername, grpcPassword, grpcClientId)
+					// The client backs off after the failed dial. Retry until it reconnects.
+					var auth bool
+					for i := 0; i < 50; i++ {
+						auth, err = g.GetUser(grpcUsername, grpcPassword, grpcClientId)
+						if err == nil {
+							break
+						}
+						time.Sleep(100 * time.Millisecond)
+					}
 					So(err, ShouldBeNil)
 					c.So(auth, ShouldBeTrue)
 
