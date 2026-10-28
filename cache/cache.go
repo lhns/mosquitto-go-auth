@@ -156,7 +156,7 @@ func (kr keyer) cacheKey(domain string, fields ...string) string {
 }
 
 func (kr keyer) toAuthRecord(username, password string) string {
-	return kr.cacheKey("auth", "n", username, password)
+	return kr.cacheKey("auth", username, password)
 }
 
 func (kr keyer) toACLRecord(username, topic, clientid string, acc int) string {

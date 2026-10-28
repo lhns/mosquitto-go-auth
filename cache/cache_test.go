@@ -168,7 +168,7 @@ func TestRedisKeyNamespace(t *testing.T) {
 	assert.NoError(t, store.SetACLRecord(ctx, "u", "t/1", "c", 1, "true"))
 
 	keys := []string{
-		"mga:v5:auth:9ba19bc012f5c559a7d579590a5a2eef1f3de7db8c95ed6bb22ed0f676570b71",
+		"mga:v5:auth:fe9e3695616028c061b57e241969d2a81fcc6c6b88f9d93067f99481c0a86b70",
 		"mga:v5:acl:f8af8bf8397413ae2f2a9407d952a2ee4997082a37da0d3137fa5acad5aa6a89",
 	}
 	for _, k := range keys {

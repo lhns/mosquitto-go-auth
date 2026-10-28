@@ -110,12 +110,12 @@ func expectedKey(domain string, fields ...string) string {
 }
 
 func TestKeyEncoding(t *testing.T) {
-	assert.Equal(t, expectedKey("auth", "n", "u", "p"), plain.toAuthRecord("u", "p"))
-	assert.Equal(t, expectedKey("auth", "n", "", ""), plain.toAuthRecord("", ""))
+	assert.Equal(t, expectedKey("auth", "u", "p"), plain.toAuthRecord("u", "p"))
+	assert.Equal(t, expectedKey("auth", "", ""), plain.toAuthRecord("", ""))
 	assert.Equal(t, expectedKey("acl", "u", "t/1", "c", "1"), plain.toACLRecord("u", "t/1", "c", 1))
 
 	// Fixed vectors, computed outside the Go code.
-	assert.Equal(t, "mga:v5:auth:9ba19bc012f5c559a7d579590a5a2eef1f3de7db8c95ed6bb22ed0f676570b71", plain.toAuthRecord("u", "p"))
+	assert.Equal(t, "mga:v5:auth:fe9e3695616028c061b57e241969d2a81fcc6c6b88f9d93067f99481c0a86b70", plain.toAuthRecord("u", "p"))
 	assert.Equal(t, "mga:v5:acl:f8af8bf8397413ae2f2a9407d952a2ee4997082a37da0d3137fa5acad5aa6a89", plain.toACLRecord("u", "t/1", "c", 1))
 }
 
@@ -123,7 +123,7 @@ func TestKeyEncoding(t *testing.T) {
 // key, and no key, give different keys for the same fields.
 func TestKeyedDigest(t *testing.T) {
 	k := keyer{key: []byte("secret")}
-	assert.Equal(t, "mga:v5:auth:2f1ef22a13d47f28efd9a388961d6fe98eeb6e5b1abce55a3aac6d922a659dbf", k.toAuthRecord("u", "p"))
+	assert.Equal(t, "mga:v5:auth:c1033a94cf8e079ab9de8de8693028027f3499e42be40de0a336486ff3b9aab8", k.toAuthRecord("u", "p"))
 	assert.Equal(t, "mga:v5:acl:16eefc97b83e76c2699be1efe748810137fa90b2b0a99cf226ce0be4fa23ae1c", k.toACLRecord("u", "t/1", "c", 1))
 
 	other := keyer{key: []byte("other")}
