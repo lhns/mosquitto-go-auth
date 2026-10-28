@@ -36,6 +36,7 @@ type Mysql struct {
 	SocketPath           string
 	AllowNativePasswords bool
 	hasher               hashing.HashComparer
+	hideErrors           bool // a jwt backend is configured: the driver text can quote the token
 	maxLifeTime          int64
 
 	connectTries int
@@ -51,6 +52,7 @@ func NewMysql(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 	missingOptions := ""
 
 	var mysql = Mysql{
+		hideErrors:     jwtConfigured(authOpts),
 		Host:           "localhost",
 		Port:           "3306",
 		SSLMode:        "false",
@@ -247,6 +249,7 @@ func (o Mysql) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "mysql: query failed", err)
 		log.Debugf("MySql get user error: %s", err)
 		return false, err
 	}
@@ -281,6 +284,7 @@ func (o Mysql) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "mysql: query failed", err)
 		log.Debugf("MySql get superuser error: %s", err)
 		return false, err
 	}
@@ -310,6 +314,7 @@ func (o Mysql) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
+		err = queryError(o.hideErrors, "mysql: query failed", err)
 		log.Debugf("MySql check acl error: %s", err)
 		return false, err
 	}

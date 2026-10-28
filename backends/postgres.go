@@ -30,6 +30,7 @@ type Postgres struct {
 	SSLKey         string
 	SSLRootCert    string
 	hasher         hashing.HashComparer
+	hideErrors     bool // a jwt backend is configured: the driver text can quote the token
 	maxLifeTime    int64
 
 	connectTries int
@@ -45,6 +46,7 @@ func NewPostgres(authOpts map[string]string, logLevel log.Level, hasher hashing.
 	missingOptions := ""
 
 	var postgres = Postgres{
+		hideErrors:     jwtConfigured(authOpts),
 		Host:           "localhost",
 		Port:           "5432",
 		SSLMode:        "verify-full",
@@ -194,6 +196,7 @@ func (o Postgres) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "postgres: query failed", err)
 		log.Debugf("PG get user error: %s", err)
 		return false, err
 	}
@@ -228,6 +231,7 @@ func (o Postgres) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "postgres: query failed", err)
 		log.Debugf("PG get superuser error: %s", err)
 		return false, err
 	}
@@ -258,6 +262,7 @@ func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
+		err = queryError(o.hideErrors, "postgres: query failed", err)
 		log.Debugf("PG check acl error: %s", err)
 		return false, err
 	}

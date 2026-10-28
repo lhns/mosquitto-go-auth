@@ -62,6 +62,7 @@ func NewLocalJWTChecker(authOpts map[string]string, logLevel log.Level, hasher h
 			return nil, errors.Errorf("JWT backend error: couldn't create mysql connector for local jwt: %s", err)
 		}
 
+		mysql.hideErrors = true
 		checker.mysql = mysql
 
 		return checker, nil
@@ -72,6 +73,7 @@ func NewLocalJWTChecker(authOpts map[string]string, logLevel log.Level, hasher h
 		return nil, errors.Errorf("JWT backend error: couldn't create postgres connector for local jwt: %s", err)
 	}
 
+	postgres.hideErrors = true
 	checker.postgres = postgres
 
 	return checker, nil
@@ -146,6 +148,8 @@ func (o *localJWTChecker) getLocalUser(username string) (bool, error) {
 	}
 
 	if err != nil {
+		// The driver text can quote the input.
+		err = queryError(true, "jwt local: query failed", err)
 		log.Debugf("local JWT get user error: %s", err)
 		return false, err
 	}

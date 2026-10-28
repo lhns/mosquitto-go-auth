@@ -316,6 +316,15 @@ func jwtConfigured(authOpts map[string]string) bool {
 	return false
 }
 
+// queryError gives the error of a database or directory query. When hide is set, the driver or
+// server text, which can quote the username (a token with a jwt backend), is replaced by text.
+func queryError(hide bool, text string, err error) error {
+	if !hide {
+		return err
+	}
+	return errors.New(text)
+}
+
 // UsernameLoggable tells if usernames may appear in logs and spans.
 // With a JWT backend the username can be a token, so it is never shown.
 func (b *Backends) UsernameLoggable() bool {

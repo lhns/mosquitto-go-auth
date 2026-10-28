@@ -21,6 +21,7 @@ type Sqlite struct {
 	SuperuserQuery string
 	AclQuery       string
 	hasher         hashing.HashComparer
+	hideErrors     bool // a jwt backend is configured: the driver text can quote the token
 	maxLifeTime    int64
 
 	connectTries int
@@ -36,6 +37,7 @@ func NewSqlite(authOpts map[string]string, logLevel log.Level, hasher hashing.Ha
 	missingOptions := ""
 
 	var sqlite = Sqlite{
+		hideErrors:     jwtConfigured(authOpts),
 		SuperuserQuery: "",
 		AclQuery:       "",
 		hasher:         hasher,
@@ -115,6 +117,7 @@ func (o Sqlite) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "sqlite: query failed", err)
 		log.Debugf("SQlite get user error: %s", err)
 		return false, err
 	}
@@ -149,6 +152,7 @@ func (o Sqlite) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
+		err = queryError(o.hideErrors, "sqlite: query failed", err)
 		log.Debugf("sqlite get superuser error: %s", err)
 		return false, err
 	}
@@ -178,6 +182,7 @@ func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
+		err = queryError(o.hideErrors, "sqlite: query failed", err)
 		log.Debugf("sqlite check acl error: %s", err)
 		return false, err
 	}
