@@ -1370,9 +1370,9 @@ Options for `mongo` are the following:
 | auth_opt_mongo_acls                  | acls         |     N     | ACL collection                       |
 | auth_opt_mongo_disable_superuser     | true         |     N     | Disable query to check for superuser |
 | auth_opt_mongo_with_tls              | false        |     N     | Connect with TLS                     |
-| auth_opt_mongo_insecure_skip_verify  | false        |     N     | Verify server's certificate chain    |
+| auth_opt_mongo_insecure_skip_verify  | false        |     N     | Skip server certificate verification |
 
-With `auth_opt_mongo_with_tls true`, the plugin connects with TLS and checks the server certificate. The plugin also reads the old name `auth_opt_mongo_use_tls`.
+With `auth_opt_mongo_with_tls true`, the plugin connects with TLS and checks the server certificate against the system trust store, unless `auth_opt_mongo_insecure_skip_verify true` is set (not recommended outside tests). The plugin also reads the old name `auth_opt_mongo_use_tls`.
 
 
 If you experience any problem connecting to a replica set, please refer to [this issue](https://github.com/iegomez/mosquitto-go-auth/issues/32).
