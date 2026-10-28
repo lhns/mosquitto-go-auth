@@ -46,6 +46,11 @@ type Backends struct {
 	stripPrefix bool
 	prefixes    map[string]string
 
+	// jwt_mode, jwt_skip_user_expiration and jwt_skip_acl_expiration, for CacheDeadline.
+	jwtMode        string
+	jwtSkipUserExp bool
+	jwtSkipACLExp  bool
+
 	disableSuperuser    bool
 	exhaustBackendFirst bool
 	jwtConfigured       bool
@@ -180,6 +185,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				b.backends[postgresBackend] = be
 			}
 		case jwtBackend:
+			b.jwtMode = authOpts["jwt_mode"]
+			b.jwtSkipUserExp = authOpts["jwt_skip_user_expiration"] == "true"
+			b.jwtSkipACLExp = authOpts["jwt_skip_acl_expiration"] == "true"
 			beIface, err = NewJWT(authOpts, logLevel, hasher, version)
 			if err != nil {
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)

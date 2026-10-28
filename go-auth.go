@@ -24,6 +24,7 @@ import (
 type BackendsChecker interface {
 	AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error)
 	AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error)
+	CacheDeadline(username string, acl bool) (deadline time.Time, capped bool)
 	LogUsername(username string) string
 	Halt()
 }
@@ -376,7 +377,10 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		return false, fmt.Errorf("empty username or password not allowed")
 	}
 
-	if authPlugin.useCache {
+	// An expired JWT result is neither read from nor stored in the cache.
+	cacheable := authPlugin.useCache && !jwtExpired(username, false)
+
+	if cacheable {
 		log.WithContext(ctx).Debugf("checking auth cache for %s", authPlugin.backends.LogUsername(username))
 		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
 		if cached {
@@ -391,7 +395,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
-	if authPlugin.useCache && err == nil {
+	if cacheable && err == nil {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
@@ -456,7 +460,10 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		)
 	}()
 
-	if authPlugin.useCache {
+	// An expired JWT result is neither read from nor stored in the cache.
+	cacheable := authPlugin.useCache && !jwtExpired(username, true)
+
+	if cacheable {
 		log.WithContext(ctx).Debugf("checking acl cache for %s", authPlugin.backends.LogUsername(username))
 		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
 		if cached {
@@ -471,7 +478,7 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
-	if authPlugin.useCache && err == nil {
+	if cacheable && err == nil {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
@@ -485,6 +492,14 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, authPlugin.backends.LogUsername(username))
 	return aclCheck, err
+}
+
+// jwtExpired tells if username is a JWT whose exp has passed, so a cache entry for it must not
+// be used or stored.
+func jwtExpired(username string, acl bool) bool {
+	deadline, capped := authPlugin.backends.CacheDeadline(username, acl)
+
+	return capped && !time.Now().Before(deadline)
 }
 
 // authResult maps (ok, err) into a result label used on spans and metrics.
