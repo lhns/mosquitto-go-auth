@@ -5,6 +5,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,9 +28,12 @@ func TestRedisClusterResetFlushesAllMasters(t *testing.T) {
 	}
 
 	count := func() (perMaster []int64) {
+		var mu sync.Mutex // ForEachMaster runs the function on all masters at the same time
 		require.NoError(t, store.client.ForEachMaster(ctx, func(ctx context.Context, c *goredis.Client) error {
 			n, err := c.DBSize(ctx).Result()
+			mu.Lock()
 			perMaster = append(perMaster, n)
+			mu.Unlock()
 			return err
 		}))
 		return perMaster
