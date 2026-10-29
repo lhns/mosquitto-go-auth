@@ -92,7 +92,7 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		options.userFieldKey = claimsSubjectKey
 	}
 
-	switch authOpts["jwt_mode"] {
+	switch mode {
 	case jsMode:
 		jwt.mode = jsMode
 		checker, err = NewJsJWTChecker(authOpts, options)
@@ -113,7 +113,7 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		return nil, err
 	}
 
-	jwt.name = fmt.Sprintf("JWT %s", authOpts["jwt_mode"])
+	jwt.name = fmt.Sprintf("JWT %s", mode)
 
 	jwt.checker = checker
 

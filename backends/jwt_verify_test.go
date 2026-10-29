@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -235,5 +236,34 @@ func TestJWTCheckerWithoutKeyRejectsToken(t *testing.T) {
 			require.Error(t, err)
 			require.False(t, ok)
 		}
+	})
+}
+
+// An explicit empty secret, or an empty secret file, is a startup error where tokens are verified.
+func TestJWTEmptySecretStartup(t *testing.T) {
+	emptyFile := filepath.Join(t.TempDir(), "secret")
+	require.NoError(t, os.WriteFile(emptyFile, nil, 0o600))
+
+	for name, opts := range map[string]map[string]string{
+		"empty secret":      {"jwt_mode": "local", "jwt_secret": ""},
+		"empty secret file": {"jwt_mode": "local", "jwt_secret_file": emptyFile},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewJWT(opts, log.ErrorLevel, hashing.NewHasher(opts, ""), "test")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "missing jwt secret")
+		})
+	}
+
+	t.Run("js mode without parse token starts without a secret", func(t *testing.T) {
+		opts := map[string]string{
+			"jwt_mode":                     "js",
+			"jwt_js_user_script_path":      "../test-files/jwt/user_script.js",
+			"jwt_js_superuser_script_path": "../test-files/jwt/superuser_script.js",
+			"jwt_js_acl_script_path":       "../test-files/jwt/acl_script.js",
+		}
+		j, err := NewJWT(opts, log.ErrorLevel, hashing.NewHasher(opts, ""), "test")
+		require.NoError(t, err)
+		j.Halt()
 	})
 }
