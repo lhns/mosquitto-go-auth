@@ -47,7 +47,8 @@ const (
 	maxSaltLen          = 512     // bytes of the decoded salt
 	maxPBKDF2Iterations = 5000000 // about 8 times the OWASP value for PBKDF2-HMAC-SHA256
 
-	maxArgon2Memory      = 1 << 22 // KiB, that is 4 GiB
+	// KiB: 4 GiB, or 1 GiB on 32-bit builds where 4 GiB cannot be allocated.
+	maxArgon2Memory      = 1 << (20 + 2*(strconv.IntSize/32-1))
 	maxArgon2Iterations  = 32
 	maxArgon2Parallelism = 64
 )

@@ -424,7 +424,9 @@ A stored `PBKDF2` or `Argon2ID` hash must be well formed, or the password check 
 - the whole hash is longer than 4096 bytes,
 - the key or the salt is longer than 512 bytes,
 - `PBKDF2` uses fewer than 1 or more than 5000000 iterations,
-- `Argon2ID` uses more than 4 GiB of memory (`m` over 4194304), fewer than 1 or more than 32 iterations, or a parallelism of less than 1 or more than 64.
+- `Argon2ID` uses more than 4 GiB of memory (`m` over 4194304; 1 GiB, `m` over 1048576, on 32-bit builds), fewer than 1 or more than 32 iterations, or a parallelism of less than 1 or more than 64.
+
+`Argon2ID` allocates `m` KiB for every login attempt, also for a wrong password, so keep `m` moderate.
 
 **These options may be defined for each backend that needs a hasher by prepending the backend's name to the option, e.g. for setting `argon2id` as `Postgres'` hasher**:
 

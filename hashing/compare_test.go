@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,6 +108,8 @@ func TestPBKDF2Compare(t *testing.T) {
 		"legacy unpadded key":         "PBKDF2$sha512$1000$c2FsdA==$" + raw512,
 		"legacy bad salt":             "PBKDF2$sha512$1000$!!!$" + k512,
 		"phc checksum bad first char": "pbkdf2-sha512$i=1000,l=64$c2FsdA$-AAAAAAA", // not accepted by the raw decoder
+		"phc checksum padding only":   "pbkdf2-sha512$i=1000,l=32$c2FsdA$==",
+		"phc checksum A=":             "pbkdf2-sha512$i=1000,l=32$c2FsdA$A=",
 		"legacy missing field":        "PBKDF2$sha512$1000$c2FsdA==",
 		"legacy empty key":            "PBKDF2$sha512$1000$c2FsdA==$",
 		"unknown format":              "$argon2id$v=19$m=64,t=1,p=1$c2FsdHNhbHQ$q8xf6lwhDBCcgC3rk+NDxXxW7kzMEwhauOIJ+P8uReY",
@@ -184,8 +187,9 @@ func TestPBKDF2LimitBoundary(t *testing.T) {
 func TestArgon2IDLimitBoundary(t *testing.T) {
 	assert.True(t, argon2InLimits(maxArgon2Memory, maxArgon2Iterations, maxArgon2Parallelism, maxKeyLen, maxSaltLen))
 	assert.False(t, argon2InLimits(maxArgon2Memory+1, 1, 1, 32, 16))
-	// The README documents 4 GiB (4194304 KiB) as the upper bound.
-	assert.True(t, argon2InLimits(4194304, 1, 1, 32, 16))
+	// The README documents 4 GiB (4194304 KiB) as the upper bound, 1 GiB on 32-bit builds.
+	assert.True(t, argon2InLimits(1048576, 1, 1, 32, 16))
+	assert.Equal(t, strconv.IntSize == 64, argon2InLimits(4194304, 1, 1, 32, 16))
 }
 
 // Hash refuses parameters that Compare would refuse, and never panics.
