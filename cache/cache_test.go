@@ -173,7 +173,7 @@ func TestRedisKeyNamespace(t *testing.T) {
 	assert.NoError(t, store.SetACLRecord(ctx, "u", "t/1", "c", 1, "true"))
 
 	keys := []string{
-		"mga:v5:auth:fe9e3695616028c061b57e241969d2a81fcc6c6b88f9d93067f99481c0a86b70",
+		"mga:v5:auth:3a73e8bc64e84e4fe5196a1f0eb1531a6ed014d8921f639340527cc6fcfc8c3e",
 		"mga:v5:acl:f8af8bf8397413ae2f2a9407d952a2ee4997082a37da0d3137fa5acad5aa6a89",
 	}
 	for _, k := range keys {
@@ -447,5 +447,5 @@ func TestIsLegacyKey(t *testing.T) {
 	assert.True(t, isLegacyKey(legacyKey("acl-a-b-c-1")))
 	assert.False(t, isLegacyKey(legacyKey("other-a-b")))
 	assert.False(t, isLegacyKey(base64.RawStdEncoding.EncodeToString([]byte("auth-a-b"))))
-	assert.False(t, isLegacyKey("mga:v5:auth:fe9e3695616028c061b57e241969d2a81fcc6c6b88f9d93067f99481c0a86b70"))
+	assert.False(t, isLegacyKey("mga:v5:auth:3a73e8bc64e84e4fe5196a1f0eb1531a6ed014d8921f639340527cc6fcfc8c3e"))
 }
