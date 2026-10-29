@@ -535,8 +535,8 @@ A topic that starts with `$` is not matched by a rule whose first level is `+` o
 
 When a pattern rule uses `%u` (username) or `%c` (clientid), the plugin checks the value it inserts:
 
-- If the value is empty or has `/` or NUL, the pattern does not apply. This is like mosquitto, which skips `%u` patterns for a client without a username.
-- If the value has `+` or `#`, the pattern does not apply either, but a `pattern deny` rule with such a value denies the request, because a wildcard would widen the rule.
+- If the value is empty or has `/` or NUL, a `pattern` allow rule does not apply. This is like mosquitto, which skips `%u` patterns for a client without a username. A `pattern deny` rule is matched with the value inserted as it is, like it would be without this check, so that a skipped deny rule cannot let a broader rule grant the topic.
+- If the value has `+` or `#`, a `pattern` allow rule does not apply either, but a `pattern deny` rule with such a value denies the request, because a wildcard would widen the rule.
 
 This extends the check that mosquitto does with `auth_plugin_deny_special_chars true`. The plugin logs a skipped or rejected value at debug level, without the value.
 

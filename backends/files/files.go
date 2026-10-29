@@ -394,9 +394,9 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 			continue
 		}
 
-		// A deny rule with a wildcard in a placeholder value denies the request. A rule with an empty value or one with / or NUL does not apply.
+		// A deny rule with a wildcard in a placeholder value denies the request. With an empty value or one with / or NUL it is matched with the literal result, so that it cannot fail open.
 		aclTopic, outcome := topics.Substitute(aclRecord.topic, username, clientid)
-		if outcome == topics.Reject || (outcome == topics.Replaced && topics.Match(aclTopic, topic)) {
+		if outcome == topics.Reject || topics.Match(aclTopic, topic) {
 			return false, nil
 		}
 	}

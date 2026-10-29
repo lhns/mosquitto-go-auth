@@ -443,7 +443,7 @@ func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
 			So(granted, ShouldBeFalse)
 		})
 
-		Convey("A deny pattern should not apply when the client ID is empty or has / or NUL", func() {
+		Convey("A deny pattern should be matched with the literal client ID when it is empty or has / or NUL", func() {
 			for _, id := range []string{"", "a/b", "a\x00"} {
 				granted, err := files.CheckAcl("test1", "a/b", id, MOSQ_ACL_WRITE)
 				So(err, ShouldBeNil)
@@ -475,6 +475,53 @@ func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
 			granted, err := files.CheckAcl("a/b", "public/x", "id", MOSQ_ACL_READ)
 			So(err, ShouldBeNil)
 			So(granted, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given a deny pattern with the client ID and a general grant", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic readwrite #\npattern deny private/%c/#\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A client ID with / should be denied the literal topic, for read and write", func() {
+			for _, acc := range []int32{MOSQ_ACL_READ, MOSQ_ACL_WRITE} {
+				granted, err := files.CheckAcl("alice", "private/a/b/x", "a/b", acc)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeFalse)
+			}
+		})
+
+		Convey("Other topics should still be granted", func() {
+			for _, id := range []string{"a/b", "", "a\x00b", "alice"} {
+				granted, err := files.CheckAcl("alice", "foo/bar", id, MOSQ_ACL_WRITE)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeTrue)
+			}
+			granted, err := files.CheckAcl("alice", "private/other/x", "a/b", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given a deny pattern with the user name and a general grant", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic readwrite #\npattern deny users/%u/admin\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("An anonymous client should get normal topics, and not the literal denied one", func() {
+			granted, err := files.CheckAcl("", "foo/bar", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			granted, err = files.CheckAcl("", "users//admin", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
 		})
 	})
 }
