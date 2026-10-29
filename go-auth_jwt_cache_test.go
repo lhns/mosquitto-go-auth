@@ -121,7 +121,7 @@ func TestExpiredDeadlineSkipsCache(t *testing.T) {
 
 	store := cache.NewGoStore(time.Hour, time.Hour, 0, 0, false)
 	t.Cleanup(store.Close)
-	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "true"))
+	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "id", "true"))
 
 	backends := &deadlineBackends{deadline: time.Now().Add(-time.Second)}
 	authPlugin = AuthPlugin{backends: backends, ctx: context.Background(), useCache: true, cache: store}
@@ -166,7 +166,7 @@ func TestDeadlinePassingDuringCacheReadSkipsHit(t *testing.T) {
 
 	store := cache.NewGoStore(time.Hour, time.Hour, 0, 0, false)
 	t.Cleanup(store.Close)
-	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "true"))
+	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "id", "true"))
 	require.NoError(t, store.SetACLRecord(context.Background(), "user", "a/b", "id", 1, "true"))
 
 	backends := &expiringBackends{}
