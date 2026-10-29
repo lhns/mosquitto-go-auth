@@ -108,6 +108,7 @@ func TestPBKDF2Compare(t *testing.T) {
 		"legacy unpadded key":         "PBKDF2$sha512$1000$c2FsdA==$" + raw512,
 		"legacy bad salt":             "PBKDF2$sha512$1000$!!!$" + k512,
 		"phc checksum bad first char": "pbkdf2-sha512$i=1000,l=64$c2FsdA$-AAAAAAA", // not accepted by the raw decoder
+		"phc parameter without =":     "pbkdf2-sha512$i=1000,l$c2FsdA$" + raw512, // panicked in 3.5.0
 		"phc checksum padding only":   "pbkdf2-sha512$i=1000,l=32$c2FsdA$==",
 		"phc checksum A=":             "pbkdf2-sha512$i=1000,l=32$c2FsdA$A=",
 		"legacy missing field":        "PBKDF2$sha512$1000$c2FsdA==",
@@ -216,6 +217,24 @@ func TestHashInvalidParameters(t *testing.T) {
 			}()
 			_, err := h.Hash(testPassword)
 			assert.Error(t, err)
+		})
+	}
+}
+
+// A hash made at the largest salt and key sizes is accepted by Compare.
+func TestHashAtLimitsRoundTrip(t *testing.T) {
+	for name, h := range map[string]HashComparer{
+		"pbkdf2 sha512 base64": NewPBKDF2Hasher(maxSaltLen, 1000, SHA512, Base64, maxKeyLen),
+		"pbkdf2 sha512 utf8":   NewPBKDF2Hasher(maxSaltLen, 1000, SHA512, UTF8, maxKeyLen),
+		"pbkdf2 sha256 base64": NewPBKDF2Hasher(maxSaltLen, 1000, SHA256, Base64, maxKeyLen),
+		"pbkdf2 sha256 utf8":   NewPBKDF2Hasher(maxSaltLen, 1000, SHA256, UTF8, maxKeyLen),
+		"argon2id":             NewArgon2IDHasher(maxSaltLen, 1, maxKeyLen, 64, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			hash, err := h.Hash(testPassword)
+			assert.NoError(t, err)
+			assert.True(t, compare(t, h, testPassword, hash))
+			assert.False(t, compare(t, h, "other", hash))
 		})
 	}
 }
