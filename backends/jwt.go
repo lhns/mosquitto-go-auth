@@ -130,7 +130,7 @@ func (o *JWT) GetName() string {
 
 // Reload reloads the checker when it supports it (the files mode).
 func (o *JWT) Reload() error {
-	if r, ok := o.checker.(interface{ Reload() error }); ok {
+	if r, ok := o.checker.(Reloader); ok {
 		return r.Reload()
 	}
 

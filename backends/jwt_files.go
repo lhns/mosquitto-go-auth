@@ -59,7 +59,7 @@ func (o *filesJWTChecker) Reload() error {
 	return o.checker.Reload()
 }
 
-// Halt stops the reload watcher of the files checker.
+// Halt calls Halt of the files checker, which has nothing to stop.
 func (o *filesJWTChecker) Halt() {
 	o.checker.Halt()
 }
