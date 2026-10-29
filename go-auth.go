@@ -385,9 +385,13 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
 		if cached {
 			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
-			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
-			return granted, nil
+			// The exp may have passed while the cache was read.
+			if !jwtExpired(username, false) {
+				span.AddEvent("cache.hit")
+				telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
+				return granted, nil
+			}
+			cacheable = false
 		}
 		span.AddEvent("cache.miss")
 		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
@@ -468,9 +472,13 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
 		if cached {
 			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
-			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
-			return granted, nil
+			// The exp may have passed while the cache was read.
+			if !jwtExpired(username, true) {
+				span.AddEvent("cache.hit")
+				telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
+				return granted, nil
+			}
+			cacheable = false
 		}
 		span.AddEvent("cache.miss")
 		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
