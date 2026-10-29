@@ -102,7 +102,10 @@ func handshakeResult(t *testing.T, opts map[string]string) error {
 
 func TestMongoTLSVerification(t *testing.T) {
 	t.Run("verify by default", func(t *testing.T) {
-		require.Error(t, handshakeResult(t, map[string]string{}))
+		// The server sees the client's certificate alert; a timeout or a disconnect would not match.
+		err := handshakeResult(t, map[string]string{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "bad certificate")
 	})
 	t.Run("insecure skip verify", func(t *testing.T) {
 		require.NoError(t, handshakeResult(t, map[string]string{"mongo_insecure_skip_verify": "true"}))
