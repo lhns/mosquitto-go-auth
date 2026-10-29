@@ -130,8 +130,7 @@ func remoteJWTForRedaction(t *testing.T, extra map[string]string) *JWT {
 	return b
 }
 
-// The remote JWT backend logs neither the token of an approved check nor the token echoed in a denial,
-// but it keeps the rest of the denial text.
+// The remote JWT backend logs neither the token of an approved check nor the denial text, only the status.
 func TestRedaction_RemoteJWTLogs(t *testing.T) {
 	reply := "ok"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +150,7 @@ func TestRedaction_RemoteJWTLogs(t *testing.T) {
 	require.False(t, ok)
 
 	require.False(t, logsContain(hook, sentinelToken))
-	require.True(t, logsContain(hook, "api error: unknown user <hidden>"))
+	require.True(t, logsContain(hook, "api error: status 200"))
 }
 
 // When no host can be found from the token, the error does not contain the token.
@@ -425,6 +424,7 @@ func TestRedaction_JSErrorEcho(t *testing.T) {
 			hook := captureDebugLogs(t)
 			j, err := NewJavascript(map[string]string{
 				"js_user_script_path": script, "js_superuser_script_path": script, "js_acl_script_path": script,
+				"js_ms_max_duration": "5000",
 			}, log.DebugLevel)
 			require.NoError(t, err)
 			j.hideToken = hide
@@ -449,6 +449,7 @@ func TestRedaction_JSErrorEcho(t *testing.T) {
 		hook := captureDebugLogs(t)
 		checker, err := NewJsJWTChecker(map[string]string{
 			"jwt_js_user_script_path": jwtScript, "jwt_js_superuser_script_path": jwtScript, "jwt_js_acl_script_path": jwtScript,
+			"jwt_js_ms_max_duration": "5000",
 		}, tokenOptions{})
 		require.NoError(t, err)
 
@@ -460,11 +461,11 @@ func TestRedaction_JSErrorEcho(t *testing.T) {
 	})
 }
 
-// A denial text of the remote JWT server that holds a cut-off token is hidden as a whole.
+// A denial text of the remote JWT server that echoes a cut-off token and the password is not logged.
 func TestRedaction_RemoteJWTCutOffReply(t *testing.T) {
 	for mode, reply := range map[string]string{
-		"text": "bad token " + longToken[:40],
-		"json": `{"ok":false,"error":"bad token ` + longToken[:40] + `"}`,
+		"text": "bad token " + longToken[:40] + " password " + sentinelPW,
+		"json": `{"ok":false,"error":"bad token ` + longToken[:40] + ` password ` + sentinelPW + `"}`,
 	} {
 		t.Run(mode, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -480,7 +481,8 @@ func TestRedaction_RemoteJWTCutOffReply(t *testing.T) {
 			require.NoError(t, err)
 			require.False(t, ok)
 			requireNoTokenLeak(t, hook, longToken)
-			require.True(t, logsContain(hook, hiddenErrorText))
+			require.False(t, logsContain(hook, sentinelPW))
+			require.True(t, logsContain(hook, "api error: status 200"))
 		})
 	}
 }

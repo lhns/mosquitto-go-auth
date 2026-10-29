@@ -310,7 +310,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: %s", hideText(o.hideToken, string(body), username))
+			o.logAPIError(string(body), resp.StatusCode)
 			return false, nil
 		}
 
@@ -326,7 +326,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			log.Infof("api error: %s", hideText(o.hideToken, response.Error, username))
+			o.logAPIError(response.Error, resp.StatusCode)
 			return false, nil
 		}
 
@@ -335,6 +335,16 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 	log.Debugf("http request approved for %s", logUsername(o.hideToken, username))
 	return true, nil
 
+}
+
+// logAPIError logs the denial text of the server. With a jwt backend it can echo the username or
+// the password in any form, so only the status is logged.
+func (o HTTP) logAPIError(text string, status int) {
+	if o.hideToken {
+		log.Infof("api error: status %d", status)
+		return
+	}
+	log.Infof("api error: %s", text)
 }
 
 // GetName returns the backend's name

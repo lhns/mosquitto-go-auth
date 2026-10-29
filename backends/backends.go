@@ -3,6 +3,7 @@ package backends
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -180,9 +181,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("backend registered: %s", beIface.GetName())
-				be := beIface.(Postgres)
-				be.hideToken = b.jwtConfigured
-				b.backends[postgresBackend] = be
+				b.backends[postgresBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case jwtBackend:
 			b.jwtMode = authOpts["jwt_mode"]
@@ -217,9 +216,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(Mysql)
-				be.hideToken = b.jwtConfigured
-				b.backends[mysqlBackend] = be
+				b.backends[mysqlBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case httpBackend:
 			beIface, err = NewHTTP(authOpts, logLevel, version)
@@ -227,9 +224,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(HTTP)
-				be.hideToken = b.jwtConfigured
-				b.backends[httpBackend] = be
+				b.backends[httpBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case sqliteBackend:
 			beIface, err = NewSqlite(authOpts, logLevel, hasher)
@@ -237,9 +232,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(Sqlite)
-				be.hideToken = b.jwtConfigured
-				b.backends[sqliteBackend] = be
+				b.backends[sqliteBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case mongoBackend:
 			beIface, err = NewMongo(authOpts, logLevel, hasher)
@@ -255,9 +248,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(*GRPC)
-				be.hideToken = b.jwtConfigured
-				b.backends[grpcBackend] = be
+				b.backends[grpcBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case jsBackend:
 			beIface, err = NewJavascript(authOpts, logLevel)
@@ -265,9 +256,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(*Javascript)
-				be.hideToken = b.jwtConfigured
-				b.backends[jsBackend] = be
+				b.backends[jsBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case ldapBackend:
 			beIface, err = NewLDAP(authOpts, logLevel)
@@ -275,9 +264,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				be := beIface.(*LDAP)
-				be.hideToken = b.jwtConfigured
-				b.backends[ldapBackend] = be
+				b.backends[ldapBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case pluginBackend:
 			beIface, err = NewCustomPlugin(authOpts, logLevel)
@@ -343,6 +330,32 @@ func (b *Backends) setCheckers(authOpts map[string]string) error {
 	return nil
 }
 
+// withHideToken sets hideToken on the backends that echo external error text, and gives the
+// backend back (the sql, http backends are values, so they are copied).
+func withHideToken(be Backend, hide bool) Backend {
+	switch be := be.(type) {
+	case Postgres:
+		be.hideToken = hide
+		return be
+	case Mysql:
+		be.hideToken = hide
+		return be
+	case Sqlite:
+		be.hideToken = hide
+		return be
+	case HTTP:
+		be.hideToken = hide
+		return be
+	case *LDAP:
+		be.hideToken = hide
+	case *GRPC:
+		be.hideToken = hide
+	case *Javascript:
+		be.hideToken = hide
+	}
+	return be
+}
+
 // hideToken replaces the username in the text of an error. With a jwt backend the username can be
 // a token, and a database or directory error can quote it (for example the cast error of a uuid column).
 // Without a jwt backend the error is returned unchanged.
@@ -360,12 +373,18 @@ func hideToken(hide bool, err error, username string) error {
 }
 
 // hideText is hideToken for a text, such as the reply of an auth server. The whole username is
-// replaced first; a cut-off copy that is left (a text can quote the value twice) hides the whole text.
+// replaced first, also in its URL-encoded forms (a url.Error quotes a redirect URL); a cut-off copy
+// that is left (a text can quote the value twice) hides the whole text.
 func hideText(hide bool, text, username string) string {
 	if !hide || username == "" {
 		return text
 	}
 	text = strings.ReplaceAll(text, username, hiddenUsername)
+	for _, encoded := range []string{url.QueryEscape(username), url.PathEscape(username)} {
+		if encoded != username {
+			text = strings.ReplaceAll(text, encoded, hiddenUsername)
+		}
+	}
 	if len(username) >= truncatedTokenMinLen && strings.Contains(text, username[:truncatedTokenPrefixLen]) {
 		return hiddenErrorText
 	}
