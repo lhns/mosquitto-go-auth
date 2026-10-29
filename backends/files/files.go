@@ -354,6 +354,17 @@ func checkCommentOrEmpty(line string) bool {
 	return strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == ""
 }
 
+// Users returns a copy of the users of the current snapshot.
+func (o *Checker) Users() map[string]*staticFileUser {
+	users := o.snap.Load().users
+	cp := make(map[string]*staticFileUser, len(users))
+	for name, u := range users {
+		cp[name] = &staticFileUser{password: u.password, aclRecords: append([]aclRecord(nil), u.aclRecords...)}
+	}
+
+	return cp
+}
+
 // GetUser checks that user exists and password is correct.
 func (o *Checker) GetUser(username, password, clientid string) (bool, error) {
 
