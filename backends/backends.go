@@ -355,14 +355,21 @@ func (b *Backends) setPrefixes(authOpts map[string]string, backends []string) {
 
 // checkPrefix checks if a username contains a valid prefix. If so, returns ok and the suitable backend name; else, !ok and empty string.
 func (b *Backends) lookupPrefix(username string) (bool, string) {
-	if strings.Index(username, "_") > 0 {
-		userPrefix := username[0:strings.Index(username, "_")]
-		if prefix, ok := b.prefixes[userPrefix]; ok {
-			log.Debugf("Found prefix for user %s, using backend %s.", username, prefix)
-			return true, prefix
-		}
+	if _, backend, ok := b.splitPrefix(username); ok {
+		log.Debugf("Found prefix for user %s, using backend %s.", username, backend)
+		return true, backend
 	}
 	return false, ""
+}
+
+// splitPrefix gives the registered prefix of a username and its backend, without logging.
+func (b *Backends) splitPrefix(username string) (prefix, backend string, ok bool) {
+	if i := strings.Index(username, "_"); i > 0 {
+		if backend, ok := b.prefixes[username[:i]]; ok {
+			return username[:i], backend, true
+		}
+	}
+	return "", "", false
 }
 
 // getPrefixForBackend retrieves the user provided prefix for a given backend.
