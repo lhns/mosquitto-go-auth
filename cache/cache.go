@@ -401,7 +401,7 @@ func newRedisStore(s *redisStore) *redisStore {
 
 // sweepLegacyKeys deletes the keys of earlier versions: they hold the password in the key, readable
 // with Redis KEYS or a backup. It scans every master and only deletes keys that isLegacyKey accepts.
-// On an error it logs and stops: the cache works without the sweep.
+// On an error it logs a warning and stops: the cache works without the sweep.
 func (s *redisStore) sweepLegacyKeys(ctx context.Context) {
 	// Cluster masters are swept concurrently.
 	var deleted atomic.Int64
@@ -441,10 +441,10 @@ func (s *redisStore) sweepLegacyKeys(ctx context.Context) {
 			cursor = next
 		}
 	})
+	n := deleted.Load()
 	if err != nil {
-		log.Errorf("couldn't sweep legacy cache keys, stopping: %s", err)
+		log.Warnf("legacy cache key cleanup stopped early and may be incomplete (deleted %d keys so far), old keys may remain and can be deleted by hand: %s", n, err)
+		return
 	}
-	if n := deleted.Load(); n > 0 {
-		log.Infof("deleted %d legacy cache keys", n)
-	}
+	log.Infof("deleted %d legacy cache keys", n)
 }

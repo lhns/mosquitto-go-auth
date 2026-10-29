@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
+	"fmt"
 	"testing"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpirationWithJitter(t *testing.T) {
@@ -378,10 +381,9 @@ func legacyKey(text string) string {
 
 // The sweep that the constructor starts deletes legacy keys (which hold the password) and nothing
 // else: a key with the right prefix but another suffix, a foreign key and a current key stay.
-func testSweepLegacyKeys(t *testing.T, newStore func() *redisStore) {
+func testSweepLegacyKeys(t *testing.T, newStore func() *redisStore, legacy []string) {
 	ctx := context.Background()
 
-	legacy := []string{legacyKey("auth-legacy-user-legacy-pass"), legacyKey("acl-u-t/1-c-1")}
 	decoy := base64.StdEncoding.EncodeToString([]byte("auth-legacy-user-legacy-pass-not-a-sha1-suffix"))
 	keep := []string{decoy, "foreign:key", "mga:v5:auth:abc"}
 
@@ -409,14 +411,35 @@ func testSweepLegacyKeys(t *testing.T, newStore func() *redisStore) {
 func TestRedisSweepLegacyKeys(t *testing.T) {
 	testSweepLegacyKeys(t, func() *redisStore {
 		return NewSingleRedisStore("localhost", "6379", "", "", 3, time.Minute, time.Minute, 0, 0, false)
-	})
+	}, []string{legacyKey("auth-legacy-user-legacy-pass"), legacyKey("acl-u-t/1-c-1")})
 }
 
 func TestRedisClusterSweepLegacyKeys(t *testing.T) {
 	addresses := []string{"localhost:7000", "localhost:7001", "localhost:7002", "localhost:7003", "localhost:7004", "localhost:7005"}
-	testSweepLegacyKeys(t, func() *redisStore {
+	newStore := func() *redisStore {
 		return NewRedisClusterStore("", "", addresses, time.Minute, time.Minute, 0, 0, false)
-	})
+	}
+
+	// Pick two legacy keys that live on different masters, so the test fails if the sweep
+	// only scans one of them.
+	probe := newStore()
+	<-probe.sweepDone
+	var legacy []string
+	var firstMaster string
+	for i := 0; i < 1000 && len(legacy) < 2; i++ {
+		key := legacyKey(fmt.Sprintf("auth-legacy-user-%d-legacy-pass", i))
+		master, err := probe.client.(*goredis.ClusterClient).MasterForKey(context.Background(), key)
+		require.NoError(t, err)
+		if len(legacy) == 0 {
+			legacy, firstMaster = append(legacy, key), master.Options().Addr
+		} else if master.Options().Addr != firstMaster {
+			legacy = append(legacy, key)
+		}
+	}
+	probe.Close()
+	require.Len(t, legacy, 2, "legacy fixtures must be on two different masters")
+
+	testSweepLegacyKeys(t, newStore, legacy)
 }
 
 func TestIsLegacyKey(t *testing.T) {
