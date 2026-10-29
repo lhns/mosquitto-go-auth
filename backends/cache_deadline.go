@@ -17,9 +17,9 @@ const maxExp = 253402300799
 // When the JWT backend is on and username is a compact JWT with an exp claim, the deadline is
 // exp and capped is true. A present exp that is not a non-negative number (a string, null, an
 // object, a negative number) is capped at once, so the result is not cached, because the
-// remote server or script may read it differently. An exp beyond the year 9999 is no cap. A JWT prefix is removed first. Only the payload is decoded
-// (header, signature and algorithm are ignored), so a token of any algorithm gets the
-// cap. The exp claim can only make the cache lifetime shorter and it never grants access.
+// remote server or script may read it differently. An exp beyond the year 9999 is no cap.
+// A JWT prefix is removed first. Only the payload is decoded (header, signature and
+// algorithm are ignored), so a token of any algorithm gets the cap. The exp claim can only make the cache lifetime shorter and it never grants access.
 // The skip options lift the cap only in local and files mode, where the plugin checks the
 // token itself: for a login result when jwt_skip_user_expiration is true, for an ACL result
 // when both skip options are true (a superuser check, which uses the user option, can also
