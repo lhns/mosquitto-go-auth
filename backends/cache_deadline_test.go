@@ -119,7 +119,7 @@ func TestCacheDeadline(t *testing.T) {
 			})
 		})
 
-		Convey("An exp too large to expire should not cap, a fractional exp should keep its fraction", func() {
+		Convey("An exp too large to expire should not cap, a fractional exp should be rounded down", func() {
 			raw := func(payload string) string {
 				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
 			}
@@ -133,7 +133,15 @@ func TestCacheDeadline(t *testing.T) {
 
 			deadline, capped = b.CacheDeadline(raw(`{"exp":1700000000.5}`), true)
 			So(capped, ShouldBeTrue)
-			So(deadline.Equal(time.Unix(1700000000, 500000000)), ShouldBeTrue)
+			// The JWT library truncates exp to the second, so the cache must not outlive it.
+			So(deadline.Equal(time.Unix(1700000000, 0)), ShouldBeTrue)
+
+			deadline, capped = b.CacheDeadline(raw(`{"exp":1700000000.999}`), true)
+			So(capped, ShouldBeTrue)
+			So(deadline.Equal(time.Unix(1700000000, 0)), ShouldBeTrue)
+
+			_, capped = b.CacheDeadline(raw(`{"exp":-0.5}`), true)
+			So(capped, ShouldBeTrue)
 		})
 
 		Convey("There should be no cap without the JWT backend", func() {
