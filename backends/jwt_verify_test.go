@@ -210,3 +210,30 @@ func TestJWTJSNonStringUsernameIsDenied(t *testing.T) {
 		})
 	}
 }
+
+// A checker without a key (NewJWT refuses to build one) must reject tokens, not panic.
+func TestJWTCheckerWithoutKeyRejectsToken(t *testing.T) {
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "user",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte("secret"))
+	require.NoError(t, err)
+
+	for _, skip := range []bool{false, true} {
+		_, err := getJWTClaims(tokenOptions{}, token, skip)
+		require.Error(t, err)
+	}
+
+	// The files checker does not look at the token in GetUser, so only CheckAcl is covered.
+	require.NotPanics(t, func() {
+		ok, err := (&localJWTChecker{}).GetUser(token)
+		require.Error(t, err)
+		require.False(t, ok)
+
+		for _, c := range []jwtChecker{&localJWTChecker{}, &filesJWTChecker{}} {
+			ok, err = c.CheckAcl(token, "topic", "client", 1)
+			require.Error(t, err)
+			require.False(t, ok)
+		}
+	})
+}
