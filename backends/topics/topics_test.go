@@ -211,3 +211,13 @@ func TestSubstituteAllowAndDeny(t *testing.T) {
 		}
 	})
 }
+
+func TestMatchDeny(t *testing.T) {
+	Convey("MatchDeny should not apply the $ rule of Match", t, func() {
+		So(MatchDeny("#", "$SYS/broker/uptime"), ShouldBeTrue)
+		So(MatchDeny("+/secret", "$app/secret"), ShouldBeTrue)
+		So(MatchDeny("$SYS/#", "$SYS/a"), ShouldBeTrue)
+		So(MatchDeny("+/secret", "$app/public"), ShouldBeFalse)
+		So(Match("#", "$SYS/broker/uptime"), ShouldBeFalse)
+	})
+}

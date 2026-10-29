@@ -21,6 +21,13 @@ func Match(savedTopic, givenTopic string) bool {
 	return match(strings.Split(savedTopic, "/"), strings.Split(givenTopic, "/"))
 }
 
+// MatchDeny tells if givenTopic matches savedTopic's pattern, for deny rules. It does not apply
+// the "$" rule of Match: a deny rule that starts with "#" or "+" also denies "$" topics, like in
+// 3.5.1, so that the rule cannot deny less than before.
+func MatchDeny(savedTopic, givenTopic string) bool {
+	return givenTopic == savedTopic || match(strings.Split(savedTopic, "/"), strings.Split(givenTopic, "/"))
+}
+
 func match(route []string, topic []string) bool {
 	switch {
 	case len(route) == 0:
