@@ -8,11 +8,13 @@ import (
 	"crypto/x509"
 	"math/big"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -110,4 +112,25 @@ func TestMongoTLSVerification(t *testing.T) {
 	t.Run("insecure skip verify", func(t *testing.T) {
 		require.NoError(t, handshakeResult(t, map[string]string{"mongo_insecure_skip_verify": "true"}))
 	})
+}
+
+func TestMongoInsecureSkipVerifyWithoutTLSWarns(t *testing.T) {
+	warned := func(opts map[string]string) bool {
+		hook := logtest.NewGlobal()
+		defer hook.Reset()
+		opts["mongo_host"], opts["mongo_port"] = "127.0.0.1", "1"
+		m, err := NewMongo(opts, log.WarnLevel, hashing.NewHasher(opts, "mongo"))
+		require.NoError(t, err)
+		m.Halt()
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "mongo_insecure_skip_verify is ignored") {
+				return true
+			}
+		}
+		return false
+	}
+
+	require.True(t, warned(map[string]string{"mongo_insecure_skip_verify": "true"}))
+	require.False(t, warned(map[string]string{"mongo_insecure_skip_verify": "true", "mongo_with_tls": "true"}))
+	require.False(t, warned(map[string]string{}))
 }

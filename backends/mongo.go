@@ -122,6 +122,8 @@ func NewMongo(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 			log.Warn("mongo_insecure_skip_verify is true: the Mongo server certificate is not verified")
 		}
 		opts.TLSConfig = &tls.Config{InsecureSkipVerify: m.insecureSkipVerify}
+	} else if m.insecureSkipVerify {
+		log.Warn("mongo_insecure_skip_verify is ignored: TLS is off, set mongo_with_tls to use it")
 	}
 
 	opts.ApplyURI(addr)
