@@ -1,12 +1,26 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 )
+
+// checkArgon2Args refuses values that would wrap in the conversion to the argon2 types, so that
+// the hashing limits see what the user typed.
+func checkArgon2Args(memory, parallelism int) error {
+	if memory < 1 || int64(memory) > math.MaxUint32 {
+		return errors.New("invalid argon2 memory: must be between 1 and 4294967295")
+	}
+	if parallelism < 1 || parallelism > math.MaxUint8 {
+		return errors.New("invalid argon2 parallelism: must be between 1 and 255")
+	}
+	return nil
+}
 
 func main() {
 
@@ -23,6 +37,18 @@ func main() {
 
 	flag.Parse()
 
+	// An explicit -i 0 is an error, only a missing -i selects the default.
+	iterationsSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "i" {
+			iterationsSet = true
+		}
+	})
+	if iterationsSet && *iterations < 1 {
+		fmt.Fprintln(os.Stderr, "invalid iterations: must be at least 1")
+		os.Exit(1)
+	}
+
 	shaSize := *keylen
 
 	if shaSize == 0 {
@@ -38,7 +64,7 @@ func main() {
 	}
 
 	// One default does not fit both: argon2id iterations are passes over memory, a few are enough.
-	if *iterations == 0 {
+	if !iterationsSet {
 		*iterations = 100000
 		if *hasher == hashing.Argon2IDOpt {
 			*iterations = 3
@@ -49,6 +75,10 @@ func main() {
 
 	switch *hasher {
 	case hashing.Argon2IDOpt:
+		if err := checkArgon2Args(*memory, *parallelism); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		hashComparer = hashing.NewArgon2IDHasher(*saltSize, *iterations, shaSize, uint32(*memory), uint8(*parallelism))
 	case hashing.BcryptOpt:
 		hashComparer = hashing.NewBcryptHashComparer(*cost)

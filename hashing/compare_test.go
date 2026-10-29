@@ -179,6 +179,42 @@ func TestArgon2IDRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPBKDF2RoundTrip(t *testing.T) {
+	for _, algorithm := range []string{SHA256, SHA512} {
+		for _, encoding := range []string{Base64, UTF8} {
+			t.Run(algorithm+" "+encoding, func(t *testing.T) {
+				h := NewPBKDF2Hasher(defaultPBKDF2SaltSize, defaultPBKDF2Iterations, algorithm, encoding, defaultPBKDF2KeyLen)
+				hash, err := h.Hash(testPassword)
+				assert.NoError(t, err)
+				assert.True(t, compare(t, h, testPassword, hash))
+				assert.False(t, compare(t, h, "other", hash))
+			})
+		}
+	}
+}
+
+func TestBcryptCompare(t *testing.T) {
+	h := NewBcryptHashComparer(4)
+	hash, err := h.Hash(testPassword)
+	assert.NoError(t, err)
+	assert.True(t, compare(t, h, testPassword, hash))
+	assert.False(t, compare(t, h, "other", hash))
+
+	// Built by hand: computing cost 17 would take minutes if the limit did not apply.
+	over := "$2a$17$" + strings.Repeat("a", 53)
+	assert.False(t, compare(t, h, testPassword, over))
+	assert.False(t, compare(t, h, testPassword, "$2a$04$short"))
+	assert.False(t, compare(t, h, testPassword, ""))
+}
+
+func TestBcryptLimitBoundary(t *testing.T) {
+	assert.True(t, bcryptInLimits(maxBcryptCost))
+	assert.False(t, bcryptInLimits(maxBcryptCost+1))
+
+	_, err := NewBcryptHashComparer(maxBcryptCost + 1).Hash(testPassword)
+	assert.Error(t, err)
+}
+
 func TestPBKDF2LimitBoundary(t *testing.T) {
 	assert.True(t, pbkdf2InLimits(maxPBKDF2Iterations, maxKeyLen, maxSaltLen))
 	assert.False(t, pbkdf2InLimits(maxPBKDF2Iterations+1, 32, 16))
