@@ -137,3 +137,49 @@ func TestExpiredDeadlineSkipsCache(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 1, backends.calls)
 }
+
+// expiringBackends reports a deadline that passes during the cache read.
+type expiringBackends struct {
+	deadlineBackends
+	checks int
+}
+
+// The first check (before the cache read) is live, the next ones are expired.
+func (e *expiringBackends) CacheDeadline(string, bool) (time.Time, bool) {
+	e.checks++
+	if e.checks == 1 {
+		return time.Now().Add(time.Hour), true
+	}
+	return time.Now().Add(-time.Second), true
+}
+
+func (e *expiringBackends) AuthAclCheck(context.Context, string, string, string, int) (bool, error) {
+	e.calls++
+	return false, nil
+}
+
+// A deadline that passes between the check before the cache read and the cache hit must not
+// serve the cached grant.
+func TestDeadlinePassingDuringCacheReadSkipsHit(t *testing.T) {
+	saved := authPlugin
+	t.Cleanup(func() { authPlugin = saved })
+
+	store := cache.NewGoStore(time.Hour, time.Hour, 0, 0, false)
+	t.Cleanup(store.Close)
+	require.NoError(t, store.SetAuthRecord(context.Background(), "user", "pass", "true"))
+	require.NoError(t, store.SetACLRecord(context.Background(), "user", "a/b", "id", 1, "true"))
+
+	backends := &expiringBackends{}
+	authPlugin = AuthPlugin{backends: backends, ctx: context.Background(), useCache: true, cache: store}
+
+	ok, err := authUnpwdCheck("user", "pass", "id")
+	require.NoError(t, err)
+	require.False(t, ok, "the cached login grant must not be used")
+	require.Equal(t, 1, backends.calls)
+
+	backends.checks = 0
+	ok, err = authAclCheck("id", "user", "a/b", 1)
+	require.NoError(t, err)
+	require.False(t, ok, "the cached acl grant must not be used")
+	require.Equal(t, 2, backends.calls)
+}

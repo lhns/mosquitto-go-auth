@@ -51,11 +51,6 @@ func TestCacheDeadline(t *testing.T) {
 			So(capped, ShouldBeTrue)
 			So(deadline.Equal(exp), ShouldBeTrue)
 
-			// The JWT library truncates a fractional exp to the second, which can only end the cache earlier.
-			payload = base64.RawURLEncoding.EncodeToString([]byte(`{"exp":1700000000.5}`))
-			deadline, capped = b.CacheDeadline(header+"."+payload+".c2ln", true)
-			So(capped, ShouldBeTrue)
-			So(deadline.Equal(time.Unix(1700000000, 0)), ShouldBeTrue)
 		})
 
 		Convey("A token with an undecodable header should still be capped", func() {
@@ -80,15 +75,65 @@ func TestCacheDeadline(t *testing.T) {
 			}
 		})
 
-		Convey("There should be no cap for a username that is not a JWT or a JWT without a valid exp", func() {
+		Convey("There should be no cap for a username that is not a JWT or a JWT without an exp", func() {
 			raw := func(payload string) string {
 				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
 			}
 			for _, username := range []string{"alice", "", "a.b.c", "a.b", sign(jwtGo.MapClaims{"username": "test"}),
-				raw(`{"exp":true}`), raw(`{"exp":null}`), raw(`not json`)} {
+				raw(`not json`), raw(`[1]`), raw(`{"EXP":1}`), raw(`{"exp":253402300800}`)} {
 				_, capped := b.CacheDeadline(username, true)
 				So(capped, ShouldBeFalse)
 			}
+		})
+
+		Convey("An exp that cannot be read should expire the token at once", func() {
+			raw := func(payload string) string {
+				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
+			}
+			future := time.Now().Add(time.Hour).Unix()
+			for _, payload := range []string{
+				`{"exp":"1730000000"}`, `{"exp":null}`, `{"exp":true}`, `{"exp":{}}`, `{"exp":[]}`, `{"exp":-1}`,
+				// the unrelated claim breaks a decode of all claims, exp must still count
+				`{"exp":"x","x":1e400}`,
+			} {
+				deadline, capped := b.CacheDeadline(raw(payload), true)
+				So(capped, ShouldBeTrue)
+				So(deadline.After(time.Now()), ShouldBeFalse)
+			}
+
+			// An unrelated claim that does not decode must not lift the cap of a valid exp.
+			deadline, capped := b.CacheDeadline(raw(fmt.Sprintf(`{"exp":%d,"x":1e400}`, future)), true)
+			So(capped, ShouldBeTrue)
+			So(deadline.Equal(time.Unix(future, 0)), ShouldBeTrue)
+
+			// Both keys: only "exp" counts, here it is unreadable.
+			deadline, capped = b.CacheDeadline(raw(`{"exp":"x","EXP":4102444800}`), true)
+			So(capped, ShouldBeTrue)
+			So(deadline.After(time.Now()), ShouldBeFalse)
+
+			Convey("with a JWT prefix", func() {
+				b.checkPrefix = true
+				b.prefixes = map[string]string{"jwt": jwtBackend}
+				_, capped := b.CacheDeadline("jwt_"+raw(`{"exp":null}`), true)
+				So(capped, ShouldBeTrue)
+			})
+		})
+
+		Convey("An exp too large to expire should not cap, a fractional exp should keep its fraction", func() {
+			raw := func(payload string) string {
+				return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".x"
+			}
+			for _, payload := range []string{`{"exp":1e300}`, `{"exp":99999999999999999999}`, `{"exp":253402300800}`} {
+				_, capped := b.CacheDeadline(raw(payload), true)
+				So(capped, ShouldBeFalse)
+			}
+			deadline, capped := b.CacheDeadline(raw(`{"exp":253402300799}`), true)
+			So(capped, ShouldBeTrue)
+			So(deadline.Equal(time.Unix(253402300799, 0)), ShouldBeTrue)
+
+			deadline, capped = b.CacheDeadline(raw(`{"exp":1700000000.5}`), true)
+			So(capped, ShouldBeTrue)
+			So(deadline.Equal(time.Unix(1700000000, 500000000)), ShouldBeTrue)
 		})
 
 		Convey("There should be no cap without the JWT backend", func() {
