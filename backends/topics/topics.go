@@ -43,7 +43,8 @@ const (
 	// Replaced: the pattern is usable.
 	Replaced Outcome = iota
 	// Skip: a used value is empty or has "/" or NUL. The value cannot widen a rule but it changes
-	// the rule's meaning, so the rule does not apply.
+	// the rule's meaning, so an allow rule does not apply. A deny rule is matched with the
+	// literal result, as it would be without the check, so that it cannot fail open.
 	Skip
 	// Reject: a used value has "+" or "#". The value would widen a rule.
 	// An allow rule does not apply, a deny rule denies the request.
@@ -51,8 +52,9 @@ const (
 )
 
 // Substitute replaces "%u" with username and "%c" with clientid in pattern, in one pass.
-// A replaced value is not scanned again. If a value that pattern uses is bad, the result is
-// ("", Skip) or ("", Reject), see Outcome. This extends the auth_plugin_deny_special_chars check of mosquitto.
+// A replaced value is not scanned again. If a value that pattern uses is empty or has "/" or NUL,
+// the outcome is Skip and the result has the values inserted as they are. If one has "+" or "#",
+// the result is ("", Reject). See Outcome. This extends the auth_plugin_deny_special_chars check of mosquitto.
 func Substitute(pattern, username, clientid string) (string, Outcome) {
 	orig := pattern
 	if !strings.Contains(pattern, "%") {
@@ -64,10 +66,10 @@ func Substitute(pattern, username, clientid string) (string, Outcome) {
 	for {
 		i := strings.IndexByte(pattern, '%')
 		if i < 0 || i+1 >= len(pattern) {
-			if skipped {
-				return "", Skip
-			}
 			b.WriteString(pattern)
+			if skipped {
+				return b.String(), Skip
+			}
 			return b.String(), Replaced
 		}
 		var v, name string
@@ -89,8 +91,6 @@ func Substitute(pattern, username, clientid string) (string, Outcome) {
 		if v == "" || strings.ContainsAny(v, "/\x00") {
 			log.Debugf("acl pattern %q: %s placeholder skipped, it is empty or has / or NUL", orig, name)
 			skipped = true
-			pattern = pattern[i+2:]
-			continue
 		}
 		b.WriteString(pattern[:i])
 		b.WriteString(v)
