@@ -529,14 +529,15 @@ If you're using prior versions then `MOSQ_ACL_SUBSCRIBE` is not available and yo
 
 #### ACL topic matching
 
-These rules apply to the ACL checks of the `files`, `mysql`, `postgres`, `sqlite`, `redis`, `mongo` and `ldap` backends, and to the JWT `local` and `files` modes.
+These rules apply to the ACL checks of the `files`, `mysql`, `postgres`, `sqlite`, `redis` and `mongo` backends, and to the JWT `local` and `files` modes. The `ldap` backend uses only the `$` paragraph below. Placeholders (`%u`, `%c`) are not substituted in `ldap` rules.
 
-A topic that starts with `$` is not matched by a rule whose first level is `+` or `#` (MQTT section 4.7.2). For example, the rule `#` does not grant `$SYS/broker/uptime`. To grant a `$` topic, use a rule that names the prefix, for example `$SYS/#`. A shared subscription filter (`$share/<group>/...`) is not changed by this rule.
+A topic that starts with `$` is not matched by an allow rule whose first level is `+` or `#` (MQTT section 4.7.2). For example, the rule `#` does not grant `$SYS/broker/uptime`. To grant a `$` topic, use a rule that names the prefix, for example `$SYS/#`. A shared subscription filter (`$share/<group>/...`) is not changed by this rule. Deny rules (`files` backend) are not limited like this: a deny rule that starts with `#` or `+` still matches `$` topics, as in earlier versions.
 
 When a pattern rule uses `%u` (username) or `%c` (clientid), the plugin checks the value it inserts:
 
 - If the value is empty or has `/` or NUL, a `pattern` allow rule does not apply. This is like mosquitto, which skips `%u` patterns for a client without a username. A `pattern deny` rule is matched with the value inserted as it is, like it would be without this check, so that a skipped deny rule cannot let a broader rule grant the topic.
-- If the value has `+` or `#`, a `pattern` allow rule does not apply either, but a `pattern deny` rule with such a value denies the request, because a wildcard would widen the rule.
+- If the value has `+` or `#`, a `pattern` allow rule does not apply either, but a `pattern deny` rule with such a value denies the request, because a wildcard would widen the rule. This means that every topic is denied for that client.
+- A value is substituted once: a client ID that is literally `%u` is not substituted again.
 
 This extends the check that mosquitto does with `auth_plugin_deny_special_chars true`. The plugin logs a skipped or rejected value at debug level, without the value.
 

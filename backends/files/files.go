@@ -377,9 +377,10 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	fileUser, ok := o.users[username]
 
 	// Check if the topic was explicitly denied and refuse to authorize if so.
+	// Deny rules also match "$" topics through a first level "#" or "+".
 	if ok {
 		for _, aclRecord := range fileUser.aclRecords {
-			match := topics.Match(aclRecord.topic, topic)
+			match := topics.MatchDeny(aclRecord.topic, topic)
 
 			if match {
 				if aclRecord.acc == MOSQ_ACL_DENY {
@@ -394,9 +395,11 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 			continue
 		}
 
-		// A deny rule with a wildcard in a placeholder value denies the request. With an empty value or one with / or NUL it is matched with the literal result, so that it cannot fail open.
+		// A deny rule with a wildcard in a placeholder value denies the request. With an empty value
+		// or one with / or NUL it is matched with the literal result, so that it cannot fail open.
+		// Deny rules also match "$" topics through a first level "#" or "+".
 		aclTopic, outcome := topics.Substitute(aclRecord.topic, username, clientid)
-		if outcome == topics.Reject || topics.Match(aclTopic, topic) {
+		if outcome == topics.Reject || topics.MatchDeny(aclTopic, topic) {
 			return false, nil
 		}
 	}

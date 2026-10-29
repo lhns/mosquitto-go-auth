@@ -525,3 +525,44 @@ func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
 		})
 	})
 }
+
+func TestFilesDenyRulesMatchDollarTopics(t *testing.T) {
+	Convey("Given deny rules that start with a wildcard", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic read $SYS/#\ntopic readwrite $app/#\npattern deny +/secret\n\nuser guest\ntopic deny #\n\nuser other\ntopic readwrite #\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A user deny rule should deny $ topics like in 3.5.1", func() {
+			granted, err := files.CheckAcl("guest", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("guest", "$SYS/#", "id", MOSQ_ACL_SUBSCRIBE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A pattern deny rule should deny $ topics like in 3.5.1", func() {
+			granted, err := files.CheckAcl("other", "$app/secret", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("other", "$app/public", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("An allow rule that starts with # should still not grant $ topics", func() {
+			granted, err := files.CheckAcl("other", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue) // granted by the named $SYS/# rule
+
+			granted, err = files.CheckAcl("other", "$private/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+	})
+}
