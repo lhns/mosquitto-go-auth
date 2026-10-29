@@ -335,10 +335,14 @@ func TestRedaction_RemoteJWTRequestError(t *testing.T) {
 const longToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJleHAiOjQxMDI0NDQ4MDB9.c2lnbmF0dXJlLXNlbnRpbmVs"
 
 // requireNoTokenLeak checks that no log entry (message or field) and no error holds the token or
-// its first 16 or 32 characters.
+// its first 32 characters, or any 16 characters long part of it.
 func requireNoTokenLeak(t *testing.T, hook *logtest.Hook, token string, errs ...error) {
 	t.Helper()
-	for _, part := range []string{token, token[:32], token[:16]} {
+	parts := []string{token, token[:32]}
+	for i := 0; i+16 <= len(token); i++ {
+		parts = append(parts, token[i:i+16])
+	}
+	for _, part := range parts {
 		require.False(t, logsContain(hook, part), "log holds %q", part)
 		for _, err := range errs {
 			require.Error(t, err)

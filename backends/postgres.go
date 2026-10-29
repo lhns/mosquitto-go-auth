@@ -283,7 +283,7 @@ func (o Postgres) GetName() string {
 	return "Postgres"
 }
 
-// Halt closes the mysql connection.
+// Halt closes the postgres connection.
 func (o Postgres) Halt() {
 	if o.DB != nil {
 		err := o.DB.Close()

@@ -388,7 +388,7 @@ func (o *remoteJWTChecker) getHost(token string) (string, error) {
 
 	iss, err := getIssForToken(o.options, token, o.options.skipUserExpiration)
 	if err != nil {
-		errorString := fmt.Sprintf("cannot obtain host for the authorization request from token %s: %s", hiddenUsername, hideToken(true, err, token))
+		errorString := fmt.Sprintf("cannot obtain host for the authorization request: %s", hideToken(true, err, token))
 		return "", errors.New(errorString)
 	}
 

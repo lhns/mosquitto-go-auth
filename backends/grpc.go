@@ -171,7 +171,9 @@ func (o *GRPC) Halt() {
 	}
 }
 
-func setup(hostname string, caCert string, tlsCert string, tlsKey string, withBlock bool, hideToken func() bool) ([]grpc.DialOption, error) {
+func setup(
+	hostname, caCert, tlsCert, tlsKey string, withBlock bool, hideToken func() bool,
+) ([]grpc.DialOption, error) {
 	logrusEntry := log.NewEntry(log.StandardLogger())
 	logrusOpts := []grpc_logrus.Option{
 		grpc_logrus.WithLevels(grpc_logrus.DefaultCodeToLevel),

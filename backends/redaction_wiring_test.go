@@ -1,8 +1,10 @@
 package backends
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,8 +12,12 @@ import (
 	"testing"
 
 	"github.com/go-ldap/ldap/v3"
+	gs "github.com/iegomez/mosquitto-go-auth/grpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // The http backend logs only the status of a denial with a JWT backend, not the text that can echo
@@ -193,5 +199,136 @@ func TestInitializeSetsHideToken(t *testing.T) {
 		t.Cleanup(b.Halt)
 		require.Equal(t, withJWT, b.backends[httpBackend].(HTTP).hideToken)
 		require.Equal(t, withJWT, b.backends[jsBackend].(*Javascript).hideToken)
+	}
+}
+
+// sliceAuthServer is a gRPC auth server whose errors echo a middle slice of the username.
+type sliceAuthServer struct{ echoAuthServer }
+
+func slice(username string) string { return username[20:60] }
+
+func (sliceAuthServer) GetUser(_ context.Context, req *gs.GetUserRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+slice(req.Username))
+}
+
+func (sliceAuthServer) GetSuperuser(_ context.Context, req *gs.GetSuperuserRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+slice(req.Username))
+}
+
+func (sliceAuthServer) CheckAcl(_ context.Context, req *gs.CheckAclRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+slice(req.Username))
+}
+
+// A gRPC error that echoes a slice from the middle of the token is hidden as a whole.
+func TestRedaction_GRPCMiddleSliceEcho(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := grpc.NewServer()
+	gs.RegisterAuthServiceServer(srv, &sliceAuthServer{})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	host, port, err := net.SplitHostPort(lis.Addr().String())
+	require.NoError(t, err)
+
+	for _, hide := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
+			hook := captureDebugLogs(t)
+			g, err := NewGRPC(map[string]string{"grpc_host": host, "grpc_port": port, "grpc_dial_timeout_ms": "1000"}, log.DebugLevel)
+			require.NoError(t, err)
+			g.hideToken = hide
+
+			_, userErr := g.GetUser(longToken, "pw", "cid")
+			_, superErr := g.GetSuperuser(longToken)
+			_, aclErr := g.CheckAcl(longToken, "t", "cid", 1)
+
+			if hide {
+				requireNoTokenLeak(t, hook, longToken, userErr, superErr, aclErr)
+			} else {
+				require.Contains(t, userErr.Error(), slice(longToken))
+				require.True(t, logsContain(hook, slice(longToken)))
+			}
+		})
+	}
+}
+
+// A script that puts a part of the token (the signature, a middle slice) into its error does not
+// leak it.
+func TestRedaction_JSPartOfTokenEcho(t *testing.T) {
+	dir := t.TempDir()
+	scripts := map[string]struct{ body, part string }{
+		"signature": {"var p = username.split('.'); null[p[2]];", strings.Split(longToken, ".")[2]},
+		"slice":     {"null[username.substring(20, 60)];", slice(longToken)},
+	}
+	for name, tc := range scripts {
+		script := writeScript(t, dir, name+".js", tc.body)
+		for _, hide := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/hide=%t", name, hide), func(t *testing.T) {
+				hook := captureDebugLogs(t)
+				j, err := NewJavascript(map[string]string{
+					"js_user_script_path": script, "js_superuser_script_path": script, "js_acl_script_path": script,
+					"js_ms_max_duration": "5000",
+				}, log.DebugLevel)
+				require.NoError(t, err)
+				j.hideToken = hide
+
+				_, userErr := j.GetUser(longToken, "pw", "cid")
+				_, superErr := j.GetSuperuser(longToken)
+				_, aclErr := j.CheckAcl(longToken, "t", "cid", 1)
+
+				if hide {
+					requireNoTokenLeak(t, hook, longToken, userErr, superErr, aclErr)
+				} else {
+					// The control: the script really puts the part into the error.
+					require.Contains(t, userErr.Error(), tc.part)
+					require.True(t, logsContain(hook, tc.part))
+				}
+			})
+		}
+	}
+}
+
+// echoBackend fails every call with an error that echoes the username, as mongo, redis or a
+// custom plugin can.
+type echoBackend struct{}
+
+func (echoBackend) GetUser(username, _, _ string) (bool, error) {
+	return false, errors.New("unknown user " + username)
+}
+func (echoBackend) GetSuperuser(username string) (bool, error) {
+	return false, errors.New("unknown user " + username)
+}
+func (echoBackend) CheckAcl(username, _, _ string, _ int32) (bool, error) {
+	return false, errors.New("unknown user " + username)
+}
+func (echoBackend) GetName() string { return "echo" }
+func (echoBackend) Halt()           {}
+
+// The dispatcher hides the username in the errors of every backend with a JWT backend, also for
+// backends without their own hiding. Without one the error is returned unchanged.
+func TestRedaction_DispatcherErrors(t *testing.T) {
+	for _, exhaust := range []bool{false, true} {
+		for _, hide := range []bool{true, false} {
+			t.Run(fmt.Sprintf("exhaust=%t/hide=%t", exhaust, hide), func(t *testing.T) {
+				b := &Backends{
+					backends:       map[string]Backend{"echo": echoBackend{}},
+					userCheckers:   []string{"echo"},
+					aclCheckers:    []string{"echo"},
+					sortedBackends: []string{"echo"},
+					prefixes:       map[string]string{}, jwtConfigured: hide, exhaustBackendFirst: exhaust,
+					superuserCheckers: []string{"echo"},
+				}
+				hook := captureDebugLogs(t)
+
+				_, userErr := b.AuthUnpwdCheck(context.Background(), longToken, "pw", "cid")
+				_, aclErr := b.AuthAclCheck(context.Background(), "cid", longToken, "t", 1)
+
+				if hide {
+					requireNoTokenLeak(t, hook, longToken, userErr, aclErr)
+				} else {
+					require.Contains(t, userErr.Error(), longToken)
+					require.Contains(t, aclErr.Error(), longToken)
+				}
+			})
+		}
 	}
 }
