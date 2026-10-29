@@ -51,8 +51,8 @@ const (
 )
 
 type Store interface {
-	SetAuthRecord(ctx context.Context, username, password, granted string) error
-	CheckAuthRecord(ctx context.Context, username, password string) (bool, bool)
+	SetAuthRecord(ctx context.Context, username, password, clientid, granted string) error
+	CheckAuthRecord(ctx context.Context, username, password, clientid string) (bool, bool)
 	SetACLRecord(ctx context.Context, username, topic, clientid string, acc int, granted string) error
 	CheckACLRecord(ctx context.Context, username, topic, clientid string, acc int) (bool, bool)
 	Connect(ctx context.Context, reset bool) bool
@@ -100,7 +100,7 @@ func NewSingleRedisStore(host, port, password, keySecret string, db int, authExp
 	})
 }
 
-// NewSingleRedisStore initializes a cache using a Redis Cluster as the store.
+// NewRedisClusterStore initializes a cache using a Redis Cluster as the store.
 func NewRedisClusterStore(password, keySecret string, addresses []string, authExpiration, aclExpiration, authJitter, aclJitter time.Duration, refreshExpiration bool) *redisStore {
 	clusterClient := goredis.NewClusterClient(
 		&goredis.ClusterOptions{
@@ -160,8 +160,8 @@ func (kr keyer) cacheKey(domain string, fields ...string) string {
 	return keyPrefix + domain + ":" + hex.EncodeToString(h.Sum(nil))
 }
 
-func (kr keyer) toAuthRecord(username, password string) string {
-	return kr.cacheKey("auth", username, password)
+func (kr keyer) toAuthRecord(username, password, clientid string) string {
+	return kr.cacheKey("auth", username, password, clientid)
 }
 
 func (kr keyer) toACLRecord(username, topic, clientid string, acc int) string {
@@ -228,9 +228,9 @@ func (s *redisStore) Close() {
 	s.client.Close()
 }
 
-// CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
-func (s *goStore) CheckAuthRecord(ctx context.Context, username, password string) (bool, bool) {
-	record := s.keys.toAuthRecord(username, password)
+// CheckAuthRecord checks if the username/password/clientid triple is present in the cache. Return if it's present and, if so, if it was granted privileges
+func (s *goStore) CheckAuthRecord(ctx context.Context, username, password, clientid string) (bool, bool) {
+	record := s.keys.toAuthRecord(username, password, clientid)
 	return s.checkRecord(ctx, record, expirationWithJitter(s.authExpiration, s.authJitter))
 }
 
@@ -257,9 +257,9 @@ func (s *goStore) checkRecord(ctx context.Context, record string, expirationTime
 	return true, item.Value()
 }
 
-// CheckAuthRecord checks if the username/password pair is present in the cache. Return if it's present and, if so, if it was granted privileges
-func (s *redisStore) CheckAuthRecord(ctx context.Context, username, password string) (bool, bool) {
-	record := s.keys.toAuthRecord(username, password)
+// CheckAuthRecord checks if the username/password/clientid triple is present in the cache. Return if it's present and, if so, if it was granted privileges
+func (s *redisStore) CheckAuthRecord(ctx context.Context, username, password, clientid string) (bool, bool) {
+	record := s.keys.toAuthRecord(username, password, clientid)
 	return s.checkRecord(ctx, record, s.authExpiration)
 }
 
@@ -310,9 +310,9 @@ func (s *redisStore) getAndRefresh(ctx context.Context, record string, expiratio
 	return true, false, nil
 }
 
-// SetAuthRecord sets a pair, granted option and expiration time.
-func (s *goStore) SetAuthRecord(ctx context.Context, username, password string, granted string) error {
-	record := s.keys.toAuthRecord(username, password)
+// SetAuthRecord sets a triple, granted option and expiration time.
+func (s *goStore) SetAuthRecord(ctx context.Context, username, password, clientid string, granted string) error {
+	record := s.keys.toAuthRecord(username, password, clientid)
 	recordGranted := false
 
 	if granted == "true" {
@@ -338,9 +338,9 @@ func (s *goStore) SetACLRecord(ctx context.Context, username, topic, clientid st
 	return nil
 }
 
-// SetAuthRecord sets a pair, granted option and expiration time.
-func (s *redisStore) SetAuthRecord(ctx context.Context, username, password string, granted string) error {
-	record := s.keys.toAuthRecord(username, password)
+// SetAuthRecord sets a triple, granted option and expiration time.
+func (s *redisStore) SetAuthRecord(ctx context.Context, username, password, clientid string, granted string) error {
+	record := s.keys.toAuthRecord(username, password, clientid)
 	return s.setRecord(ctx, record, granted, expirationWithJitter(s.authExpiration, s.authJitter))
 }
 

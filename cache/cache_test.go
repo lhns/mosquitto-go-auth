@@ -69,10 +69,10 @@ func TestGoStore(t *testing.T) {
 	acc := 1
 
 	// Test granted access.
-	err := store.SetAuthRecord(ctx, username, password, "true")
+	err := store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted := store.CheckAuthRecord(ctx, username, password)
+	present, granted := store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -80,7 +80,7 @@ func TestGoStore(t *testing.T) {
 	// Wait for it to expire.
 	time.Sleep(150 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.False(t, present)
 	assert.False(t, granted)
@@ -102,10 +102,10 @@ func TestGoStore(t *testing.T) {
 	assert.False(t, granted)
 
 	// Test not granted access.
-	err = store.SetAuthRecord(ctx, username, password, "false")
+	err = store.SetAuthRecord(ctx, username, password, "client", "false")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.False(t, granted)
@@ -113,7 +113,7 @@ func TestGoStore(t *testing.T) {
 	// Wait for it to expire.
 	time.Sleep(150 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.False(t, present)
 	assert.False(t, granted)
@@ -138,10 +138,10 @@ func TestGoStore(t *testing.T) {
 	store = NewGoStore(authExpiration, aclExpiration, authExpiration, aclJitter, true)
 
 	// Test granted access.
-	err = store.SetAuthRecord(ctx, username, password, "true")
+	err = store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -149,7 +149,7 @@ func TestGoStore(t *testing.T) {
 	// Check again within expiration time.
 	time.Sleep(50 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -157,7 +157,7 @@ func TestGoStore(t *testing.T) {
 	// Expiration should have been refreshed.
 	time.Sleep(65 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -169,7 +169,7 @@ func TestRedisKeyNamespace(t *testing.T) {
 	assert.True(t, store.Connect(ctx, false))
 	defer store.Close()
 
-	assert.NoError(t, store.SetAuthRecord(ctx, "u", "p", "true"))
+	assert.NoError(t, store.SetAuthRecord(ctx, "u", "p", "client", "true"))
 	assert.NoError(t, store.SetACLRecord(ctx, "u", "t/1", "c", 1, "true"))
 
 	keys := []string{
@@ -207,10 +207,10 @@ func TestRedisSingleStore(t *testing.T) {
 	acc := 1
 
 	// Test granted access.
-	err := store.SetAuthRecord(ctx, username, password, "true")
+	err := store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted := store.CheckAuthRecord(ctx, username, password)
+	present, granted := store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -219,7 +219,7 @@ func TestRedisSingleStore(t *testing.T) {
 	// support less than 1s expiration times: "specified duration is 100ms, but minimal supported value is 1s"
 	time.Sleep(1150 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.False(t, present)
 	assert.False(t, granted)
@@ -233,10 +233,10 @@ func TestRedisSingleStore(t *testing.T) {
 	assert.True(t, granted)
 
 	// Test not granted access.
-	err = store.SetAuthRecord(ctx, username, password, "false")
+	err = store.SetAuthRecord(ctx, username, password, "client", "false")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.False(t, granted)
@@ -253,10 +253,10 @@ func TestRedisSingleStore(t *testing.T) {
 	store = NewSingleRedisStore("localhost", "6379", "", "", 3, authExpiration, aclExpiration, authJitter, aclJitter, true)
 
 	// Test granted access.
-	err = store.SetAuthRecord(ctx, username, password, "true")
+	err = store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -264,7 +264,7 @@ func TestRedisSingleStore(t *testing.T) {
 	// Check it again within expiration time.
 	time.Sleep(500 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -272,7 +272,7 @@ func TestRedisSingleStore(t *testing.T) {
 	// Expiration should have been refreshed.
 	time.Sleep(800 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -303,10 +303,10 @@ func TestRedisClusterStore(t *testing.T) {
 	acc := 1
 
 	// Test granted access.
-	err := store.SetAuthRecord(ctx, username, password, "true")
+	err := store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted := store.CheckAuthRecord(ctx, username, password)
+	present, granted := store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -315,7 +315,7 @@ func TestRedisClusterStore(t *testing.T) {
 	// support less than 1s expiration times: "specified duration is 100ms, but minimal supported value is 1s"
 	time.Sleep(1150 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.False(t, present)
 	assert.False(t, granted)
@@ -329,10 +329,10 @@ func TestRedisClusterStore(t *testing.T) {
 	assert.True(t, granted)
 
 	// Test not granted access.
-	err = store.SetAuthRecord(ctx, username, password, "false")
+	err = store.SetAuthRecord(ctx, username, password, "client", "false")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.False(t, granted)
@@ -348,10 +348,10 @@ func TestRedisClusterStore(t *testing.T) {
 	store = NewRedisClusterStore("", "", addresses, authExpiration, aclExpiration, authJitter, aclJitter, true)
 
 	// Test granted access.
-	err = store.SetAuthRecord(ctx, username, password, "true")
+	err = store.SetAuthRecord(ctx, username, password, "client", "true")
 	assert.Nil(t, err)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -359,7 +359,7 @@ func TestRedisClusterStore(t *testing.T) {
 	// Check it again within expiration time.
 	time.Sleep(500 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)
@@ -367,7 +367,7 @@ func TestRedisClusterStore(t *testing.T) {
 	// Expiration should have been refreshed.
 	time.Sleep(800 * time.Millisecond)
 
-	present, granted = store.CheckAuthRecord(ctx, username, password)
+	present, granted = store.CheckAuthRecord(ctx, username, password, "client")
 
 	assert.True(t, present)
 	assert.True(t, granted)

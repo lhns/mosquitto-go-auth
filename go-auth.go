@@ -258,7 +258,7 @@ func setCache(authOpts map[string]string) {
 				addresses[i] = strings.TrimSpace(addresses[i])
 			}
 
-			store := cache.NewRedisClusterStore(
+			authPlugin.cache = cache.NewRedisClusterStore(
 				password,
 				keySecret,
 				addresses,
@@ -268,7 +268,6 @@ func setCache(authOpts map[string]string) {
 				time.Duration(aclJitterSeconds)*time.Second,
 				refreshExpiration,
 			)
-			authPlugin.cache = store
 
 		} else {
 			if cacheHost, ok := authOpts["cache_host"]; ok {
@@ -288,7 +287,7 @@ func setCache(authOpts map[string]string) {
 				}
 			}
 
-			store := cache.NewSingleRedisStore(
+			authPlugin.cache = cache.NewSingleRedisStore(
 				host,
 				port,
 				password,
@@ -300,7 +299,6 @@ func setCache(authOpts map[string]string) {
 				time.Duration(aclJitterSeconds)*time.Second,
 				refreshExpiration,
 			)
-			authPlugin.cache = store
 		}
 
 	default:
@@ -314,6 +312,8 @@ func setCache(authOpts map[string]string) {
 	}
 
 	if !authPlugin.cache.Connect(authPlugin.ctx, reset) {
+		// Release the client (and with it the legacy key sweep) before dropping the cache.
+		authPlugin.cache.Close()
 		authPlugin.cache = nil
 		authPlugin.useCache = false
 		log.Infoln("couldn't start cache, defaulting to no cache")
@@ -375,7 +375,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	if authPlugin.useCache {
 		log.WithContext(ctx).Debugf("checking auth cache for %s", username)
-		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
+		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password, clientid)
 		if cached {
 			log.WithContext(ctx).Debugf("found in cache: %s", username)
 			span.AddEvent("cache.hit")
@@ -394,7 +394,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 			authGranted = "true"
 		}
 		log.WithContext(ctx).Debugf("setting auth cache for %s", username)
-		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, authGranted); setAuthErr != nil {
+		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, clientid, authGranted); setAuthErr != nil {
 			log.WithContext(ctx).Errorf("set auth cache: %s", setAuthErr)
 			return false, setAuthErr
 		}
