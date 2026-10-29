@@ -104,6 +104,8 @@ func (o *jsJWTChecker) GetUser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.userScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 
@@ -145,6 +147,8 @@ func (o *jsJWTChecker) GetSuperuser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.superuserScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 
@@ -168,6 +172,8 @@ func (o *jsJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bool,
 
 	granted, err := o.runner.RunScript(o.aclScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 

@@ -1689,7 +1689,7 @@ The plugin can export OpenTelemetry traces and metrics over OTLP/gRPC. It is **o
 
 Tracing covers `authUnpwdCheck`, `authAclCheck`, and each per-backend call; logrus entries inside a span get `trace_id` / `span_id` fields added automatically.
 
-When the `jwt` backend is configured, the username can be a token. Then the spans do not have the `auth.username` attribute, and the debug logs and the error text of the SQL and LDAP backends show `<hidden>` in place of the username. When `use_clientid_as_username` is also set, the client ID carries the token, so the spans do not have the `auth.client_id` attribute either. Errors from the gRPC and JavaScript backends are logged as the operator's server or script returns them. The broker itself logs the username and client ID of each new connection; set `connection_messages false` in the mosquitto configuration to stop this.
+When the `jwt` backend is configured, the username can be a token. Then the spans do not have the `auth.username` attribute, and the debug logs and the error text of the SQL, LDAP, gRPC and JavaScript backends show `<hidden>` in place of the username. When `use_clientid_as_username` is also set, the client ID carries the token, so the spans do not have the `auth.client_id` attribute either. The error text of the gRPC and JavaScript backends is hidden too; the gRPC call log keeps the status code but not the error. With `files,jwt`, a files user whose name is a token would show in the "wrong password" warning of the files backend. The broker itself logs the username and client ID of each new connection; set `connection_messages false` in the mosquitto configuration to stop this.
 
 #### Metrics
 

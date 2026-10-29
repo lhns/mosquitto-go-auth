@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -29,6 +30,7 @@ type GRPC struct {
 	hostname         string
 	timeout          int
 	name             string
+	hideToken        bool // a jwt backend is configured: the error text can echo the token
 }
 
 const defaultGRPCTimeoutMs = 500
@@ -63,7 +65,7 @@ func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	addr := fmt.Sprintf("%s:%s", authOpts["grpc_host"], authOpts["grpc_port"])
 	withBlock := authOpts["grpc_fail_on_dial_error"] == "true"
 
-	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock)
+	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock, func() bool { return g.hideToken })
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +92,7 @@ func (o *GRPC) GetUser(username, password, clientid string) (bool, error) {
 	resp, err := o.client.GetUser(context.Background(), &req)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Errorf("grpc get user error: %s", err)
 		return false, err
 	}
@@ -111,6 +114,7 @@ func (o *GRPC) GetSuperuser(username string) (bool, error) {
 	resp, err := o.client.GetSuperuser(context.Background(), &req)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Errorf("grpc get superuser error: %s", err)
 		return false, err
 	}
@@ -131,6 +135,7 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	resp, err := o.client.CheckAcl(context.Background(), &req)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Errorf("grpc check acl error: %s", err)
 		return false, err
 	}
@@ -166,10 +171,19 @@ func (o *GRPC) Halt() {
 	}
 }
 
-func setup(hostname string, caCert string, tlsCert string, tlsKey string, withBlock bool) ([]grpc.DialOption, error) {
+func setup(hostname string, caCert string, tlsCert string, tlsKey string, withBlock bool, hideToken func() bool) ([]grpc.DialOption, error) {
 	logrusEntry := log.NewEntry(log.StandardLogger())
 	logrusOpts := []grpc_logrus.Option{
 		grpc_logrus.WithLevels(grpc_logrus.DefaultCodeToLevel),
+		// The call log keeps the code but not the error, whose text comes from the remote server
+		// and can echo the token. hideToken is read per call: backends.go sets it after the dial.
+		grpc_logrus.WithMessageProducer(
+			func(ctx context.Context, format string, level log.Level, code codes.Code, err error, fields log.Fields) {
+				if hideToken() {
+					err = nil
+				}
+				grpc_logrus.DefaultMessageProducer(ctx, format, level, code, err, fields)
+			}),
 	}
 
 	nsOpts := []grpc.DialOption{

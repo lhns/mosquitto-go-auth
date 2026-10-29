@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -15,11 +16,15 @@ import (
 	"time"
 
 	jwtGo "github.com/golang-jwt/jwt/v5"
+	gs "github.com/iegomez/mosquitto-go-auth/grpc"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
 	"github.com/jmoiron/sqlx"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -325,4 +330,157 @@ func TestRedaction_RemoteJWTRequestError(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), sentinelToken)
 	require.False(t, logsContain(hook, sentinelToken))
+}
+
+// longToken is a token-like username that is long enough for the cut-off prefix rule.
+const longToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJleHAiOjQxMDI0NDQ4MDB9.c2lnbmF0dXJlLXNlbnRpbmVs"
+
+// requireNoTokenLeak checks that no log entry (message or field) and no error holds the token or
+// its first 16 or 32 characters.
+func requireNoTokenLeak(t *testing.T, hook *logtest.Hook, token string, errs ...error) {
+	t.Helper()
+	for _, part := range []string{token, token[:32], token[:16]} {
+		require.False(t, logsContain(hook, part), "log holds %q", part)
+		for _, err := range errs {
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), part)
+		}
+	}
+}
+
+// echoAuthServer is a gRPC auth server whose errors echo the username, as a backend that
+// rejects an unknown user often does.
+type echoAuthServer struct {
+	gs.UnimplementedAuthServiceServer
+}
+
+func (echoAuthServer) GetUser(_ context.Context, req *gs.GetUserRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+req.Username)
+}
+
+func (echoAuthServer) GetSuperuser(_ context.Context, req *gs.GetSuperuserRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+req.Username)
+}
+
+func (echoAuthServer) CheckAcl(_ context.Context, req *gs.CheckAclRequest) (*gs.AuthResponse, error) {
+	return nil, status.Error(codes.PermissionDenied, "unknown user "+req.Username)
+}
+
+// With a JWT backend the gRPC error text and the interceptor log do not echo the token. Without
+// one they do, which shows that the server really echoes it.
+func TestRedaction_GRPCErrorEcho(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := grpc.NewServer()
+	gs.RegisterAuthServiceServer(srv, &echoAuthServer{})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	host, port, err := net.SplitHostPort(lis.Addr().String())
+	require.NoError(t, err)
+
+	for _, hide := range []bool{true, false} {
+		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
+			hook := captureDebugLogs(t)
+			g, err := NewGRPC(map[string]string{"grpc_host": host, "grpc_port": port, "grpc_dial_timeout_ms": "1000"}, log.DebugLevel)
+			require.NoError(t, err)
+			// Initialize sets it after the constructor.
+			g.hideToken = hide
+
+			_, userErr := g.GetUser(longToken, "pw", "cid")
+			_, superErr := g.GetSuperuser(longToken)
+			_, aclErr := g.CheckAcl(longToken, "t", "cid", 1)
+
+			for _, err := range []error{userErr, superErr, aclErr} {
+				require.Error(t, err)
+				require.Equal(t, !hide, strings.Contains(err.Error(), longToken))
+			}
+			if hide {
+				requireNoTokenLeak(t, hook, longToken, userErr, superErr, aclErr)
+				// The call log keeps the code.
+				require.True(t, logsContain(hook, "PermissionDenied"))
+			} else {
+				require.True(t, logsContain(hook, longToken))
+			}
+		})
+	}
+}
+
+func writeScript(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	return path
+}
+
+// A script error that quotes the username (a null dereference names the key) does not leak the
+// token with a JWT backend, in the js backend and in the js mode of the jwt backend.
+func TestRedaction_JSErrorEcho(t *testing.T) {
+	dir := t.TempDir()
+	// "Cannot access member '<username>' of null" in otto.
+	script := writeScript(t, dir, "script.js", "var rules = null; rules[username];")
+	jwtScript := writeScript(t, dir, "jwt_script.js", "var rules = null; rules[token];")
+
+	for _, hide := range []bool{true, false} {
+		t.Run(fmt.Sprintf("js/hide=%t", hide), func(t *testing.T) {
+			hook := captureDebugLogs(t)
+			j, err := NewJavascript(map[string]string{
+				"js_user_script_path": script, "js_superuser_script_path": script, "js_acl_script_path": script,
+			}, log.DebugLevel)
+			require.NoError(t, err)
+			j.hideToken = hide
+
+			_, userErr := j.GetUser(longToken, "pw", "cid")
+			_, superErr := j.GetSuperuser(longToken)
+			_, aclErr := j.CheckAcl(longToken, "t", "cid", 1)
+
+			for _, err := range []error{userErr, superErr, aclErr} {
+				require.Error(t, err)
+				require.Equal(t, !hide, strings.Contains(err.Error(), longToken))
+			}
+			if hide {
+				requireNoTokenLeak(t, hook, longToken, userErr, superErr, aclErr)
+			} else {
+				require.True(t, logsContain(hook, longToken))
+			}
+		})
+	}
+
+	t.Run("jwt js mode", func(t *testing.T) {
+		hook := captureDebugLogs(t)
+		checker, err := NewJsJWTChecker(map[string]string{
+			"jwt_js_user_script_path": jwtScript, "jwt_js_superuser_script_path": jwtScript, "jwt_js_acl_script_path": jwtScript,
+		}, tokenOptions{})
+		require.NoError(t, err)
+
+		_, userErr := checker.GetUser(longToken)
+		_, superErr := checker.GetSuperuser(longToken)
+		_, aclErr := checker.CheckAcl(longToken, "t", "cid", 1)
+
+		requireNoTokenLeak(t, hook, longToken, userErr, superErr, aclErr)
+	})
+}
+
+// A denial text of the remote JWT server that holds a cut-off token is hidden as a whole.
+func TestRedaction_RemoteJWTCutOffReply(t *testing.T) {
+	for mode, reply := range map[string]string{
+		"text": "bad token " + longToken[:40],
+		"json": `{"ok":false,"error":"bad token ` + longToken[:40] + `"}`,
+	} {
+		t.Run(mode, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(reply))
+			}))
+			t.Cleanup(srv.Close)
+			b := remoteJWTForRedaction(t, map[string]string{
+				"jwt_host": strings.TrimPrefix(srv.URL, "http://"), "jwt_response_mode": mode,
+			})
+			hook := captureDebugLogs(t)
+
+			ok, err := b.GetUser(longToken, "", "cid")
+			require.NoError(t, err)
+			require.False(t, ok)
+			requireNoTokenLeak(t, hook, longToken)
+			require.True(t, logsContain(hook, hiddenErrorText))
+		})
+	}
 }

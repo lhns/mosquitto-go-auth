@@ -255,7 +255,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[grpcBackend] = beIface.(*GRPC)
+				be := beIface.(*GRPC)
+				be.hideToken = b.jwtConfigured
+				b.backends[grpcBackend] = be
 			}
 		case jsBackend:
 			beIface, err = NewJavascript(authOpts, logLevel)
@@ -263,7 +265,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[jsBackend] = beIface.(*Javascript)
+				be := beIface.(*Javascript)
+				be.hideToken = b.jwtConfigured
+				b.backends[jsBackend] = be
 			}
 		case ldapBackend:
 			beIface, err = NewLDAP(authOpts, logLevel)
