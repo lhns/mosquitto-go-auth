@@ -4,7 +4,6 @@ import "C"
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -357,9 +356,12 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 	}()
 
 	// Enforce empty-password policy in Go: if password is empty and not allowed, reject.
+	// Reject (AuthRejected -> MOSQ_ERR_AUTH -> CONNACK "not authorised") instead of
+	// returning an error: an error maps to MOSQ_ERR_UNKNOWN, the broker drops the
+	// connection without CONNACK and logs "Bad socket read/write ... unkonwn error"
 	if (password == "" || username == "") && !authPlugin.allowEmptyCredentials {
-		log.WithContext(ctx).Debugf("empty username or password not allowed")
-		return false, fmt.Errorf("empty username or password not allowed")
+		log.WithContext(ctx).Infof("empty username or password not allowed (client %s)", clientid)
+		return false, nil
 	}
 
 	if authPlugin.useCache {
