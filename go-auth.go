@@ -448,7 +448,8 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
-	if cacheable && err == nil {
+	// The exp may have passed during the call: that result is not stored.
+	if cacheable && err == nil && !jwtExpired(username, false) {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
@@ -537,7 +538,8 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
-	if cacheable && err == nil {
+	// The exp may have passed during the call: that result is not stored.
+	if cacheable && err == nil && !jwtExpired(username, true) {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
