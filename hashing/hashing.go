@@ -76,9 +76,9 @@ func preferredEncoding(saltEncoding string) string {
 
 // Empty backend: use whatever plugin wise hashing options are present by returning whole opts.
 // Backend present: check if there's a backend_hasher option:
-// 	- Yes: return a new map with whatever hashing options are present for the given backend and hasher
-//		   (defaults will be used for missing options).
-//	- No: use whatever plugin wise hashing options are present by returning whole opts.
+//   - Yes: return a new map with whatever hashing options are present for the given backend and hasher
+//     (defaults will be used for missing options).
+//   - No: use whatever plugin wise hashing options are present by returning whole opts.
 func processHashOpts(authOpts map[string]string, backend string) map[string]string {
 
 	// Return authOpts if no backend given.
@@ -92,7 +92,7 @@ func processHashOpts(authOpts map[string]string, backend string) map[string]stri
 	// Extract specific backend options.
 	hashOpts := make(map[string]string)
 	for k, v := range authOpts {
-		if strings.Contains(k, backend) {
+		if strings.HasPrefix(k, backend+"_") {
 			hashOpts[strings.TrimPrefix(k, backend+"_")] = v
 		}
 	}
