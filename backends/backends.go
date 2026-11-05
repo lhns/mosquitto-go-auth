@@ -26,6 +26,8 @@ const (
 	// truncatedTokenMinLen characters, but not the whole username, is taken for a cut-off or sliced one.
 	truncatedTokenMinLen    = 32
 	truncatedTokenWindowLen = 16
+	// A text is percent-decoded at most this many times when it is searched for the username.
+	maxPercentDecodings = 5
 )
 
 type Backend interface {
@@ -384,14 +386,69 @@ func hideText(text, username string) string {
 			text = strings.ReplaceAll(text, encoded, hiddenUsername)
 		}
 	}
-	if len(username) >= truncatedTokenMinLen {
-		for i := 0; i+truncatedTokenWindowLen <= len(username); i++ {
-			if strings.Contains(text, username[i:i+truncatedTokenWindowLen]) {
-				return hiddenErrorText
-			}
+	if holdsUsernamePart(text, username) {
+		return hiddenErrorText
+	}
+	// A client library can quote the username percent-encoded in every byte, which leaves no run of
+	// plain characters to match. Decode the text (more than once: it can be encoded twice) and look again.
+	for decoded, i := text, 0; i < maxPercentDecodings; i++ {
+		next := percentDecode(decoded)
+		if next == decoded {
+			break
+		}
+		decoded = next
+		if strings.Contains(decoded, username) || holdsUsernamePart(decoded, username) {
+			return hiddenErrorText
 		}
 	}
 	return text
+}
+
+// holdsUsernamePart tells if text holds a truncatedTokenWindowLen long part of a long username.
+func holdsUsernamePart(text, username string) bool {
+	if len(username) < truncatedTokenMinLen {
+		return false
+	}
+	for i := 0; i+truncatedTokenWindowLen <= len(username); i++ {
+		if strings.Contains(text, username[i:i+truncatedTokenWindowLen]) {
+			return true
+		}
+	}
+	return false
+}
+
+// percentDecode decodes every valid %XX sequence of s and leaves any other text as it is.
+func percentDecode(s string) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			if hi, ok := unhex(s[i+1]); ok {
+				if lo, ok := unhex(s[i+2]); ok {
+					b.WriteByte(hi<<4 | lo)
+					i += 2
+					continue
+				}
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func unhex(c byte) (byte, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
 }
 
 // logUsername returns the username for debug logs, or a placeholder when hide is set.
