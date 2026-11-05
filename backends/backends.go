@@ -34,6 +34,11 @@ type Backends struct {
 	stripPrefix bool
 	prefixes    map[string]string
 
+	// jwt_mode, jwt_skip_user_expiration and jwt_skip_acl_expiration, for CacheDeadline.
+	jwtMode        string
+	jwtSkipUserExp bool
+	jwtSkipACLExp  bool
+
 	disableSuperuser    bool
 	exhaustBackendFirst bool
 	sortedBackends      []string
@@ -158,6 +163,9 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				b.backends[postgresBackend] = beIface.(Postgres)
 			}
 		case jwtBackend:
+			b.jwtMode = authOpts["jwt_mode"]
+			b.jwtSkipUserExp = authOpts["jwt_skip_user_expiration"] == "true"
+			b.jwtSkipACLExp = authOpts["jwt_skip_acl_expiration"] == "true"
 			beIface, err = NewJWT(authOpts, logLevel, hasher, version)
 			if err != nil {
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
@@ -346,14 +354,21 @@ func (b *Backends) setPrefixes(authOpts map[string]string, backends []string) {
 
 // checkPrefix checks if a username contains a valid prefix. If so, returns ok and the suitable backend name; else, !ok and empty string.
 func (b *Backends) lookupPrefix(username string) (bool, string) {
-	if strings.Index(username, "_") > 0 {
-		userPrefix := username[0:strings.Index(username, "_")]
-		if prefix, ok := b.prefixes[userPrefix]; ok {
-			log.Debugf("Found prefix for user %s, using backend %s.", username, prefix)
-			return true, prefix
-		}
+	if _, backend, ok := b.splitPrefix(username); ok {
+		log.Debugf("Found prefix for user %s, using backend %s.", username, backend)
+		return true, backend
 	}
 	return false, ""
+}
+
+// splitPrefix gives the registered prefix of a username and its backend, without logging.
+func (b *Backends) splitPrefix(username string) (prefix, backend string, ok bool) {
+	if i := strings.Index(username, "_"); i > 0 {
+		if backend, ok := b.prefixes[username[:i]]; ok {
+			return username[:i], backend, true
+		}
+	}
+	return "", "", false
 }
 
 // getPrefixForBackend retrieves the user provided prefix for a given backend.

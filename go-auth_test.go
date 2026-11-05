@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/iegomez/mosquitto-go-auth/telemetry"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -25,6 +26,10 @@ func (m *mockBackends) AuthUnpwdCheck(ctx context.Context, username, password, c
 
 func (m *mockBackends) AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error) {
 	return false, nil
+}
+
+func (m *mockBackends) CacheDeadline(username string, acl bool) (time.Time, bool) {
+	return time.Time{}, false
 }
 
 func (m *mockBackends) Halt() {}
