@@ -144,6 +144,8 @@ func Initialize(authOpts map[string]string, logLevel log.Level, version string) 
 		}
 	}
 
+	quietRedisLibraryLogs(authOpts)
+
 	err := b.addBackends(authOpts, logLevel, backends, version)
 	if err != nil {
 		return nil, err
