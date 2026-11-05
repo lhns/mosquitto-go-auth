@@ -417,6 +417,20 @@ auth_opt_hasher_memory 4096            # amount of memory (in kibibytes) to use
 auth_opt_hasher_parallelism 2          # degree of parallelism (i.e. number of threads)
 ```
 
+##### Stored hash validation
+
+A stored `PBKDF2` or `Argon2ID` hash must be well formed, or the password check fails. All fields must be present, and the key must decode to the stored key length (`l` in the `pbkdf2-sha512$...` format). The plugin also refuses a stored hash that is outside these limits, before it does any key derivation:
+
+- the whole hash is longer than 4096 bytes,
+- the key or the salt is longer than 512 bytes,
+- `PBKDF2` uses fewer than 1 or more than 5000000 iterations,
+- `bcrypt` uses a cost above 16,
+- `Argon2ID` uses more than 4 GiB of memory (`m` over 4194304; 1 GiB, `m` over 1048576, on 32-bit builds), fewer than 1 or more than 32 iterations, or a parallelism of less than 1 or more than 64.
+
+The limits only refuse implausible values, they do not guarantee that the memory fits the device: a 1 GiB `m` on a board with 512 MB still fails, so choose `m` for the smallest host.
+
+`Argon2ID` allocates `m` KiB for every login attempt, also for a wrong password, so keep `m` moderate.
+
 **These options may be defined for each backend that needs a hasher by prepending the backend's name to the option, e.g. for setting `argon2id` as `Postgres'` hasher**:
 
 ```
@@ -574,9 +588,9 @@ Usage of ./pw:
   -e string
       salt encoding (default "base64")
   -h string
-      hasher: pbkdf2, argon2 or bcrypt (default "pbkdf2")
+      hasher: pbkdf2, argon2id or bcrypt (default "pbkdf2")
   -i int
-      hash iterations: defaults to 100000 for pbkdf2, please set to a reasonable value for argon2 (default 100000)
+      hash iterations: defaults to 100000 for pbkdf2 and 3 for argon2
   -l int
       key length, recommended values are 32 for sha256 and 64 for sha512
   -m int

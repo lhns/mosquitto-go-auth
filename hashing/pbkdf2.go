@@ -2,17 +2,19 @@ package hashing
 
 import (
 	"bytes"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/crypto/pbkdf2"
 )
 
 type pbkdf2Hasher struct {
@@ -42,6 +44,11 @@ func NewPBKDF2Hasher(saltSize int, iterations int, algorithm string, saltEncodin
 // contain options according to the PHC String format found at
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 func (h pbkdf2Hasher) Hash(password string) (string, error) {
+	// Same limits as Compare, so that Hash never makes a hash that Compare refuses.
+	if !pbkdf2InLimits(h.iterations, h.keyLen, h.saltSize) {
+		return "", errors.New("invalid pbkdf2 parameters")
+	}
+
 	// Generate a random salt value with the given salt size.
 	salt := make([]byte, h.saltSize)
 	_, err := rand.Read(salt)
@@ -63,136 +70,140 @@ func (h pbkdf2Hasher) Hash(password string) (string, error) {
 		return "", fmt.Errorf("read random bytes error: %s", err)
 	}
 
-	return h.hashWithSalt(password, salt, h.iterations, h.algorithm, h.keyLen), nil
+	return h.hashWithSalt(password, salt, h.iterations, h.algorithm, h.keyLen)
 }
 
 // Compare verifies that passed password hashes to the same value as the
-// passed passwordHash.
+// passed passwordHash. A stored hash that is malformed or outside the limits
+// (see maxPBKDF2Iterations and the related constants) is refused.
 // Reference: https://github.com/brocaar/chirpstack-application-server/blob/master/internal/storage/user.go#L458.
 // Parsing reference: https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 func (h pbkdf2Hasher) Compare(password string, passwordHash string) bool {
-	hashSplit := h.getFields(passwordHash)
+	if len(passwordHash) > maxEncodedHashLen {
+		log.Errorf("invalid PBKDF2 hash supplied, too long")
+		return false
+	}
 
 	var (
-		err            error
-		algorithm      string
-		paramString    string
-		hashedPassword []byte
-		salt           []byte
-		iterations     int
-		keyLen         int
+		algorithm  string
+		iterations int
+		keyLen     int
+		salt       []byte
+		stored     []byte
+		saltField  string
+		err        error
 	)
-	if hashSplit[0] == "PBKDF2" {
-		algorithm = hashSplit[1]
-		iterations, err = strconv.Atoi(hashSplit[2])
-		if err != nil {
-			log.Errorf("iterations error: %s", err)
+
+	// A leading separator is allowed, as in the PHC string format.
+	fields := strings.Split(strings.TrimPrefix(passwordHash, "$"), "$")
+	switch {
+	case len(fields) == 5 && fields[0] == "PBKDF2":
+		algorithm = fields[1]
+		if algorithm == "" {
+			log.Errorf("invalid PBKDF2 hash supplied, empty algorithm")
 			return false
 		}
-
-		switch h.saltEncoding {
-		case UTF8:
-			salt = []byte(hashSplit[3])
-		default:
-			var err error
-			salt, err = base64.StdEncoding.DecodeString(hashSplit[3])
-			if err != nil {
-				log.Errorf("base64 salt error: %s", err)
+		iterations, err = strconv.Atoi(fields[2])
+		if err != nil {
+			log.Errorf("invalid PBKDF2 hash supplied, bad iterations")
+			return false
+		}
+		saltField = fields[3]
+		stored, err = base64.StdEncoding.DecodeString(fields[4])
+		if err != nil {
+			log.Errorf("invalid PBKDF2 hash supplied, bad key encoding")
+			return false
+		}
+		keyLen = len(stored)
+		if h.saltEncoding != UTF8 {
+			salt, err = base64.StdEncoding.DecodeString(saltField)
+		}
+	case len(fields) == 4 && fields[0] == "pbkdf2-sha512":
+		algorithm = SHA512
+		var seenI, seenL bool
+		for _, opt := range strings.Split(fields[1], ",") {
+			key, val, ok := strings.Cut(opt, "=")
+			n, convErr := strconv.Atoi(val)
+			if !ok || convErr != nil {
+				log.Errorf("invalid PBKDF2 hash parameters")
+				return false
+			}
+			switch {
+			case key == "i" && !seenI:
+				iterations, seenI = n, true
+			case key == "l" && !seenL:
+				keyLen, seenL = n, true
+			default:
+				log.Errorf("unknown or repeated options key in PBKDF2 hash parameters")
 				return false
 			}
 		}
-
-		hashedPassword, err = base64.StdEncoding.DecodeString(hashSplit[4])
-		if err != nil {
-			log.Errorf("base64 hash decoding error: %s", err)
+		if !seenI || !seenL {
+			log.Errorf("missing options key in PBKDF2 hash parameters")
 			return false
 		}
-		keyLen = len(hashedPassword)
-
-	} else if hashSplit[0] == "pbkdf2-sha512" {
-		algorithm = "sha512"
-		paramString = hashSplit[1]
-
-		opts := strings.Split(paramString, ",")
-		for _, opt := range opts {
-			parts := strings.Split(opt, "=")
-			for i := 0; i < len(parts); i += 2 {
-				key := parts[i]
-				val := parts[i+1]
-				switch key {
-				case "i":
-					iterations, _ = strconv.Atoi(val)
-				case "l":
-					keyLen, _ = strconv.Atoi(val)
-				default:
-					log.Errorf("unknown options key in PBKDF2 hash parameters")
-					return false
-				}
-			}
+		saltField = fields[2]
+		// Padding is accepted on the checksum, as before; the length is still checked against l.
+		stored, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(fields[3], "="))
+		if err != nil {
+			log.Errorf("invalid PBKDF2 hash supplied, bad key encoding")
+			return false
 		}
-
-		switch h.saltEncoding {
-		case UTF8:
-			salt = []byte(hashSplit[2])
-		default:
-			var err error
-			salt, err = base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(hashSplit[2])
-			if err != nil {
-				log.Errorf("base64 salt error: %s", err)
-				return false
-			}
+		if h.saltEncoding != UTF8 {
+			salt, err = base64.RawStdEncoding.DecodeString(saltField)
 		}
-
-		hashedPassword, err = base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(hashSplit[3])
-	} else {
+	default:
 		log.Errorf("invalid PBKDF2 hash supplied, unrecognized format")
 		return false
 	}
-
-	newHash := h.hashWithSalt(password, salt, iterations, algorithm, keyLen)
-	hashSplit = h.getFields(newHash)
-	newHashedPassword, err := base64.StdEncoding.DecodeString(hashSplit[4])
 	if err != nil {
-		log.Errorf("base64 salt error: %s", err)
+		log.Errorf("invalid PBKDF2 hash supplied, bad salt encoding")
+		return false
+	}
+	if h.saltEncoding == UTF8 {
+		salt = []byte(saltField)
+	}
+
+	// The limits are checked before any key derivation work.
+	if !pbkdf2InLimits(iterations, keyLen, len(salt)) || len(stored) != keyLen {
+		log.Errorf("invalid PBKDF2 hash supplied, parameters are outside the limits")
 		return false
 	}
 
-	return h.compareBytes(hashedPassword, newHashedPassword)
-}
-
-func (h pbkdf2Hasher) compareBytes(a, b []byte) bool {
-	for i, x := range a {
-		if b[i] != x {
-			return false
-		}
+	derived, err := h.key(password, salt, iterations, algorithm, keyLen)
+	if err != nil {
+		log.Errorf("PBKDF2 key derivation error")
+		return false
 	}
-	return true
+
+	return subtle.ConstantTimeCompare(derived, stored) == 1
 }
 
-func (h pbkdf2Hasher) getFields(passwordHash string) []string {
-	hashSplit := strings.FieldsFunc(passwordHash, func(r rune) bool {
-		switch r {
-		case '$':
-			return true
-		default:
-			return false
-		}
-	})
-	return hashSplit
+// pbkdf2InLimits reports whether the parameters are in the range that Compare accepts.
+func pbkdf2InLimits(iterations, keyLen, saltLen int) bool {
+	return iterations >= 1 && iterations <= maxPBKDF2Iterations &&
+		keyLen >= 1 && keyLen <= maxKeyLen &&
+		saltLen >= 0 && saltLen <= maxSaltLen
 }
 
-// Reference: https://github.com/brocaar/chirpstack-application-server/blob/master/internal/storage/user.go#L432.
-func (h pbkdf2Hasher) hashWithSalt(password string, salt []byte, iterations int, algorithm string, keylen int) string {
-	// Generate the hashed password. This should be a little painful, adjust ITERATIONS
-	// if it needs performance tweaking.  Greatly depends on the hardware.
-	// NOTE: We store these details with the returned hashed, so changes will not
-	// affect our ability to do password compares.
+func (h pbkdf2Hasher) key(password string, salt []byte, iterations int, algorithm string, keylen int) ([]byte, error) {
 	shaHash := sha512.New
 	if algorithm == SHA256 {
 		shaHash = sha256.New
 	}
+	return pbkdf2.Key(shaHash, password, salt, iterations, keylen)
+}
 
-	hashed := pbkdf2.Key([]byte(password), salt, iterations, keylen, shaHash)
+// Reference: https://github.com/brocaar/chirpstack-application-server/blob/master/internal/storage/user.go#L432.
+func (h pbkdf2Hasher) hashWithSalt(password string, salt []byte, iterations int, algorithm string, keylen int) (string, error) {
+	// Generate the hashed password. This should be a little painful, adjust ITERATIONS
+	// if it needs performance tweaking.  Greatly depends on the hardware.
+	// NOTE: We store these details with the returned hashed, so changes will not
+	// affect our ability to do password compares.
+	hashed, err := h.key(password, salt, iterations, algorithm, keylen)
+	if err != nil {
+		return "", fmt.Errorf("pbkdf2 error: %s", err)
+	}
 
 	var buffer bytes.Buffer
 
@@ -211,5 +222,5 @@ func (h pbkdf2Hasher) hashWithSalt(password string, salt []byte, iterations int,
 	buffer.WriteString("$")
 	buffer.WriteString(base64.StdEncoding.EncodeToString(hashed))
 
-	return buffer.String()
+	return buffer.String(), nil
 }
