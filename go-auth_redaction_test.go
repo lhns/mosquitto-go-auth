@@ -189,3 +189,45 @@ func TestSpansKeepClientIDWhenItIsNotAToken(t *testing.T) {
 		require.Contains(t, text, tokenAsClientID, "%+v", tc)
 	}
 }
+
+// A rejected empty password logs the client ID, except when the client ID is the token.
+func TestRedaction_EmptyCredentialsLog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		backend string
+		asUser  bool
+		visible bool
+	}{
+		{"token as client ID", "files,jwt", true, false},
+		{"JWT with a separate client ID", "files,jwt", false, true},
+		{"no JWT", "files", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			redactionPlugin(t, tc.backend)
+			authPlugin.useClientidAsUsername = tc.asUser
+			oldLevel := log.GetLevel()
+			oldHooks := log.StandardLogger().ReplaceHooks(make(log.LevelHooks))
+			t.Cleanup(func() {
+				log.SetLevel(oldLevel)
+				log.StandardLogger().ReplaceHooks(oldHooks)
+			})
+			hook := logtest.NewGlobal()
+			log.SetLevel(log.DebugLevel)
+
+			ok, err := authUnpwdCheck(redactUser, "", tokenAsClientID)
+			require.NoError(t, err)
+			require.False(t, ok)
+
+			text := ""
+			for _, e := range hook.AllEntries() {
+				text += fmt.Sprintf("%s %v\n", e.Message, e.Data)
+			}
+			require.Contains(t, text, "empty username or password not allowed")
+			if tc.visible {
+				require.Contains(t, text, tokenAsClientID)
+			} else {
+				require.NotContains(t, text, tokenAsClientID)
+			}
+		})
+	}
+}
