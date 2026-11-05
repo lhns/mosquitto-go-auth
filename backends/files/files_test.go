@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
-	"time"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -76,19 +74,19 @@ func TestFiles(t *testing.T) {
 		generalDeniedTopic := "test/general_denied"
 
 		Convey("All users but not present ones should have a record", func() {
-			_, ok := files.users[user1]
+			_, ok := files.Users()[user1]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user2]
+			_, ok = files.Users()[user2]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user3]
+			_, ok = files.Users()[user3]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user4]
+			_, ok = files.Users()[user4]
 			So(ok, ShouldBeFalse)
 
-			_, ok = files.users[elton]
+			_, ok = files.Users()[elton]
 			So(ok, ShouldBeTrue)
 		})
 
@@ -182,11 +180,11 @@ func TestFiles(t *testing.T) {
 		deniedTopic := "test/denied"
 
 		Convey("Topics for non existing users should be ignored when there's a passwords file", func() {
-			for record := range files.aclRecords {
+			for record := range files.snap.Load().aclRecords {
 				So(record, ShouldNotEqual, "test/not_present")
 			}
 
-			for _, user := range files.users {
+			for _, user := range files.Users() {
 				for record := range user.aclRecords {
 					So(record, ShouldNotEqual, "test/not_present")
 				}
@@ -304,7 +302,7 @@ func TestFiles(t *testing.T) {
 		files.Halt()
 	})
 
-	Convey("On SIGHUP files should be reloaded", t, func() {
+	Convey("On Reload files should be reloaded", t, func() {
 		pwFile, err := os.Create("test-files/test-passwords")
 		So(err, ShouldBeNil)
 		aclFile, err := os.Create("test-files/test-acls")
@@ -342,14 +340,14 @@ func TestFiles(t *testing.T) {
 		files, err := NewChecker(backendsOpt, pwPath, aclPath, log.DebugLevel, hasher)
 		So(err, ShouldBeNil)
 
-		user, ok := files.users[user1]
+		user, ok := files.Users()[user1]
 		So(ok, ShouldBeTrue)
 
 		record := user.aclRecords[0]
 		So(record.acc, ShouldEqual, MOSQ_ACL_READ)
 		So(record.topic, ShouldEqual, "test/#")
 
-		_, ok = files.users[user2]
+		_, ok = files.Users()[user2]
 		So(ok, ShouldBeFalse)
 
 		// Now add second user and reload.
@@ -358,11 +356,12 @@ func TestFiles(t *testing.T) {
 		aclFile.WriteString("\nuser test2")
 		aclFile.WriteString("\ntopic write test/#")
 
-		files.signals <- syscall.SIGHUP
+		pwFile.Sync()
+		aclFile.Sync()
 
-		time.Sleep(200 * time.Millisecond)
+		So(files.Reload(), ShouldBeNil)
 
-		user, ok = files.users[user2]
+		user, ok = files.Users()[user2]
 		So(ok, ShouldBeTrue)
 
 		record = user.aclRecords[0]

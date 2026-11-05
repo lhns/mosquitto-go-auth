@@ -676,6 +676,8 @@ The `ACLs` file follows mosquitto's regular syntax: [mosquitto(5)](https://mosqu
 There's no special `superuser` check for this backend since granting a user all permissions on `#` works in the same way.
 Furthermore, if this is **the only backend registered**, then providing no `ACLs` file path will default to grant all permissions for authenticated users when doing `ACL` checks (but then, why use a plugin if you can just use Mosquitto's static file checks, right?): if, instead, no `ACLs` file path is provided but **there are more backends registered**, this backend will default to deny any permissions for any user (again, back to basics).
 
+When the broker reloads its configuration (SIGHUP), this backend (and the JWT `files` mode) reads its files again. The new content replaces the old content: a user or a rule that you removed from a file is removed from the plugin. A password line that is not well formatted is skipped and logged, at startup and on reload. If a file cannot be read, or the ACL file has a format error, the reload fails: the plugin keeps the last good content and logs a warning. Results in the auth and ACL caches stay until their TTL. Replace the password and ACL files atomically (write a temporary file, then rename it) before you send SIGHUP: a reload that reads a half-written file skips the unreadable lines.
+
 #### Testing Files
 
 Proper test files are provided in the repo (see test-files dir) and are needed in order to test this backend.

@@ -58,6 +58,11 @@ func (o *Files) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 	return o.checker.CheckAcl(username, topic, clientid, acc)
 }
 
+// Reload reads the files again. It keeps the last good data on failure.
+func (o *Files) Reload() error {
+	return o.checker.Reload()
+}
+
 // GetName returns the backend's name
 func (o *Files) GetName() string {
 	return "Files"

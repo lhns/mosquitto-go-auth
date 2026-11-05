@@ -4,10 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
+	"sync/atomic"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
@@ -44,18 +43,26 @@ type aclRecord struct {
 	acc   byte //None 0x00, Read 0x01, Write 0x02, ReadWrite: Read | Write : 0x03, Subscribe 0x04, Deny 0x11
 }
 
-// Checker holds paths to static files, list of file users and general (no user or pattern) acl records.
+// snapshot is the content of both files after one complete read. It is not changed after it is published.
+type snapshot struct {
+	users      map[string]*staticFileUser //users keeps a registry of username/staticFileUser pairs, holding a user's password and Acl records.
+	aclRecords []aclRecord                // general (no user) and pattern records.
+}
+
+func newSnapshot() *snapshot {
+	return &snapshot{users: make(map[string]*staticFileUser), aclRecords: make([]aclRecord, 0)}
+}
+
+// Checker holds paths to static files and the last good snapshot of their content.
 type Checker struct {
-	sync.Mutex
+	sync.Mutex      // serializes reloads
 	pwPath          string
 	aclPath         string
 	checkACLs       bool
 	checkUsers      bool
-	users           map[string]*staticFileUser //users keeps a registry of username/staticFileUser pairs, holding a user's password and Acl records.
-	aclRecords      []aclRecord
+	snap            atomic.Pointer[snapshot] // readers load it once for each call and take no lock
 	staticFilesOnly bool
 	hasher          hashing.HashComparer
-	signals         chan os.Signal
 }
 
 // NewCheckers initializes a static files checker.
@@ -67,13 +74,11 @@ func NewChecker(backends, passwordPath, aclPath string, logLevel log.Level, hash
 		pwPath:          passwordPath,
 		aclPath:         aclPath,
 		checkACLs:       true,
-		users:           make(map[string]*staticFileUser),
-		aclRecords:      make([]aclRecord, 0),
 		staticFilesOnly: true,
 		hasher:          hasher,
-		signals:         make(chan os.Signal, 1),
 		checkUsers:      true,
 	}
+	checker.snap.Store(newSnapshot())
 
 	if checker.pwPath == "" {
 		checker.checkUsers = false
@@ -94,31 +99,34 @@ func NewChecker(backends, passwordPath, aclPath string, logLevel log.Level, hash
 		return nil, err
 	}
 
-	go checker.watchSignals()
-
 	return checker, nil
 }
 
-func (o *Checker) watchSignals() {
-	signal.Notify(o.signals, syscall.SIGHUP)
-
-	for {
-		select {
-		case sig := <-o.signals:
-			if sig == syscall.SIGHUP {
-				log.Debugln("[StaticFiles] got SIGHUP, reloading static files")
-				o.loadStaticFiles()
-			}
+// Reload reads the files again. On failure it keeps the last good data, logs a warning and returns the error.
+// A panic in the parser is also an error, so a reload never stops the broker.
+func (o *Checker) Reload() (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = errors.Errorf("panic (%T)", p)
 		}
-	}
+		if err != nil {
+			log.Warnf("[StaticFiles] reload failed, keeping the last good files: %s", err)
+		}
+	}()
+
+	return o.loadStaticFiles()
 }
 
+// loadStaticFiles reads both files into a new snapshot and publishes it only when both reads succeed.
+// Like at startup, a password line that is not well formatted is skipped and logged. Only an unreadable file is an error.
 func (o *Checker) loadStaticFiles() error {
 	o.Lock()
 	defer o.Unlock()
 
+	s := newSnapshot()
+
 	if o.checkUsers {
-		count, err := o.readPasswords()
+		count, err := o.readPasswords(s)
 		if err != nil {
 			return errors.Errorf("read passwords: %s", err)
 		}
@@ -127,7 +135,7 @@ func (o *Checker) loadStaticFiles() error {
 	}
 
 	if o.checkACLs {
-		count, err := o.readAcls()
+		count, err := o.readAcls(s)
 		if err != nil {
 			return errors.Errorf("read acls: %s", err)
 		}
@@ -135,11 +143,13 @@ func (o *Checker) loadStaticFiles() error {
 		log.Debugf("got %d lines from acl file", count)
 	}
 
+	o.snap.Store(s)
+
 	return nil
 }
 
 // ReadPasswords reads passwords file and populates static file users. Returns amount of users seen and possile error.
-func (o *Checker) readPasswords() (int, error) {
+func (o *Checker) readPasswords(s *snapshot) (int, error) {
 
 	usersCount := 0
 
@@ -169,7 +179,7 @@ func (o *Checker) readPasswords() (int, error) {
 
 		var fileUser *staticFileUser
 		var ok bool
-		fileUser, ok = o.users[lineArr[0]]
+		fileUser, ok = s.users[lineArr[0]]
 		if ok {
 			fileUser.password = lineArr[1]
 		} else {
@@ -178,8 +188,12 @@ func (o *Checker) readPasswords() (int, error) {
 				password:   lineArr[1],
 				aclRecords: make([]aclRecord, 0),
 			}
-			o.users[lineArr[0]] = fileUser
+			s.users[lineArr[0]] = fileUser
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("[StaticFiles] error: couldn't read passwords file: %s", err)
 	}
 
 	return usersCount, nil
@@ -187,7 +201,7 @@ func (o *Checker) readPasswords() (int, error) {
 }
 
 // readAcls reads the Acl file and associates them to existing users. It omits any non existing users.
-func (o *Checker) readAcls() (int, error) {
+func (o *Checker) readAcls(s *snapshot) (int, error) {
 	linesCount := 0
 	currentUser := ""
 	userExists := false
@@ -227,7 +241,7 @@ func (o *Checker) readAcls() (int, error) {
 				return 0, err
 			}
 
-			_, ok := o.users[username]
+			_, ok := s.users[username]
 
 			if !ok {
 				if o.checkUsers {
@@ -237,7 +251,7 @@ func (o *Checker) readAcls() (int, error) {
 					continue
 				}
 
-				o.users[username] = &staticFileUser{
+				s.users[username] = &staticFileUser{
 					password:   "",
 					aclRecords: make([]aclRecord, 0),
 				}
@@ -298,7 +312,7 @@ func (o *Checker) readAcls() (int, error) {
 						continue
 					}
 
-					fUser, ok := o.users[currentUser]
+					fUser, ok := s.users[currentUser]
 					if !ok {
 						return 0, errors.Errorf("StaticFiles backend error: user does not exist for acl at line %d", index)
 					}
@@ -306,11 +320,11 @@ func (o *Checker) readAcls() (int, error) {
 				} else {
 					// Only append to general topics when no user has been processed.
 					if !userSeen {
-						o.aclRecords = append(o.aclRecords, aclRecord)
+						s.aclRecords = append(s.aclRecords, aclRecord)
 					}
 				}
 			} else {
-				o.aclRecords = append(o.aclRecords, aclRecord)
+				s.aclRecords = append(s.aclRecords, aclRecord)
 			}
 
 			linesCount++
@@ -318,6 +332,10 @@ func (o *Checker) readAcls() (int, error) {
 		} else {
 			return 0, errors.Errorf("StaticFiles backend error: wrong acl format at line %d", index)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return 0, errors.Errorf("StaticFiles backend error: couldn't read acl file: %s", err)
 	}
 
 	return linesCount, nil
@@ -333,20 +351,24 @@ func removeAndTrim(prefix, line string, index int) (string, error) {
 }
 
 func checkCommentOrEmpty(line string) bool {
-	if len(strings.Replace(line, " ", "", -1)) == 0 || line[0:1] == "#" {
-		return true
-	}
-	return false
+	return strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == ""
 }
 
+// Users returns a copy of the users of the current snapshot.
 func (o *Checker) Users() map[string]*staticFileUser {
-	return o.users
+	users := o.snap.Load().users
+	cp := make(map[string]*staticFileUser, len(users))
+	for name, u := range users {
+		cp[name] = &staticFileUser{password: u.password, aclRecords: append([]aclRecord(nil), u.aclRecords...)}
+	}
+
+	return cp
 }
 
 // GetUser checks that user exists and password is correct.
 func (o *Checker) GetUser(username, password, clientid string) (bool, error) {
 
-	fileUser, ok := o.users[username]
+	fileUser, ok := o.snap.Load().users[username]
 	if !ok {
 		return false, nil
 	}
@@ -374,7 +396,8 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 		return o.staticFilesOnly, nil
 	}
 
-	fileUser, ok := o.users[username]
+	s := o.snap.Load()
+	fileUser, ok := s.users[username]
 
 	// Check if the topic was explicitly denied and refuse to authorize if so.
 	// Deny rules also match "$" topics through a first level "#" or "+".
@@ -390,7 +413,7 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 		}
 	}
 
-	for _, aclRecord := range o.aclRecords {
+	for _, aclRecord := range s.aclRecords {
 		if aclRecord.acc != MOSQ_ACL_DENY {
 			continue
 		}
@@ -416,7 +439,7 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 			}
 		}
 	}
-	for _, aclRecord := range o.aclRecords {
+	for _, aclRecord := range s.aclRecords {
 		// Replace %c with clientid and %u with username. A rule whose placeholder value is not usable does not apply.
 		aclTopic, outcome := topics.Substitute(aclRecord.topic, username, clientid)
 
@@ -431,7 +454,5 @@ func (o *Checker) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 
 }
 
-// Halt does nothing for static files as there's no cleanup needed.
-func (o *Checker) Halt() {
-	// NO-OP
-}
+// Halt does nothing: the checker holds no resources.
+func (o *Checker) Halt() {}
