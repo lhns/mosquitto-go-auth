@@ -14,7 +14,7 @@ ARG LWS_VERSION
 # (ctrl shell / HTTP API / broker persistence).
 RUN set -ex; \
     apt-get update; \
-    apt-get install -y wget build-essential cmake libssl-dev libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev
+    apt-get install -y wget curl build-essential cmake libssl-dev libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
 RUN set -ex; \
@@ -43,7 +43,7 @@ WORKDIR /app
 
 RUN mkdir -p mosquitto/auth mosquitto/conf.d
 
-RUN wget http://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
+RUN curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
 RUN tar xzvf mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
