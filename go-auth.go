@@ -5,6 +5,7 @@ import "C"
 import (
 	"context"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -345,7 +346,9 @@ func setCache(authOpts map[string]string) {
 }
 
 //export AuthUnpwdCheck
-func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
+func AuthUnpwdCheck(username, password, clientid *C.char) (result uint8) {
+	defer recoverCheck("auth", &result)
+
 	var ok bool
 	var err error
 
@@ -454,7 +457,9 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 }
 
 //export AuthAclCheck
-func AuthAclCheck(clientid, username, topic *C.char, acc C.int) uint8 {
+func AuthAclCheck(clientid, username, topic *C.char, acc C.int) (result uint8) {
+	defer recoverCheck("acl", &result)
+
 	var ok bool
 	var err error
 
@@ -559,6 +564,16 @@ func authResult(ok bool, err error) string {
 		return "granted"
 	}
 	return "rejected"
+}
+
+// recoverCheck turns a panic in a check into AuthError, which mosquitto treats as a denial.
+// Without it a panic in any backend or hasher crosses the cgo boundary and stops the broker.
+// The arguments are not logged: they can hold a password or a token.
+func recoverCheck(kind string, result *uint8) {
+	if r := recover(); r != nil {
+		log.Errorf("%s check panicked, denying: %v\n%s", kind, r, debug.Stack())
+		*result = AuthError
+	}
 }
 
 //export AuthPskKeyGet
