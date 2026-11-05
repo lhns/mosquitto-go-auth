@@ -252,7 +252,8 @@ func setCache(authOpts map[string]string) {
 		password := ""
 		cluster := false
 
-		if authOpts["cache_mode"] == "true" {
+		// The README documents "cluster"; "true" is what the code checked before, so it keeps working.
+		if mode := authOpts["cache_mode"]; mode == "cluster" || mode == "true" {
 			cluster = true
 		}
 
@@ -269,7 +270,12 @@ func setCache(authOpts map[string]string) {
 
 		if cluster {
 
-			addressesOpt := authOpts["redis_cluster_addresses"]
+			// The README documents cache_addresses; redis_cluster_addresses (the Redis backend's option)
+			// is what the code read before, so it keeps working.
+			addressesOpt := authOpts["cache_addresses"]
+			if addressesOpt == "" {
+				addressesOpt = authOpts["redis_cluster_addresses"]
+			}
 			if addressesOpt == "" {
 				log.Errorln("cache Redis cluster addresses missing, defaulting to no cache.")
 				authPlugin.useCache = false
