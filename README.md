@@ -356,6 +356,8 @@ You may omit or set jitter options to 0 to disable this feature.
 
 If `cache_reset` is set to false or omitted, cache won't be flushed upon service start.
 
+A cache time of 0 means "don't cache": with `auth_cache_seconds 0` (or `acl_cache_seconds 0`) auth (or ACL) results are neither stored nor read, in the memory cache and in Redis, and `cache_refresh` does not change that. A negative value counts as 0. The plugin logs one info line at startup when a cache is off. The other cache stays on.
+
 When the `jwt` backend is on and the username is a JWT with an `exp` claim, a cached result for that token is not used after `exp`, also with `cache_refresh true`. An expired token is not stored, and neither is a result of a backend call that was still running when the token expired. In `local` and `files` mode the cap does not apply to a login result when `jwt_skip_user_expiration` is true, and to an ACL result when both `jwt_skip_user_expiration` and `jwt_skip_acl_expiration` are true. An `exp` that is not a non-negative number disables caching for that token. In `remote` and `js` mode the server or script decides about `exp`, so the cap always applies.
 
 When using Redis, the following defaults will be used if no values are given. Also, these are the available options for cache:

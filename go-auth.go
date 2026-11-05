@@ -211,6 +211,11 @@ func setCache(authOpts map[string]string) {
 		log.Warningf("authJitterSeconds is larger than authCacheSeconds, defaulting to %d", authJitterSeconds)
 	}
 
+	// A jitter below 0 would make the expiration draw panic.
+	if authJitterSeconds < 0 {
+		authJitterSeconds = 0
+	}
+
 	if aclCacheSec, ok := authOpts["acl_cache_seconds"]; ok {
 		aclSec, err := strconv.ParseInt(aclCacheSec, 10, 64)
 		if err == nil {
@@ -232,6 +237,21 @@ func setCache(authOpts map[string]string) {
 	if aclJitterSeconds > aclCacheSeconds {
 		aclJitterSeconds = aclCacheSeconds
 		log.Warningf("aclJitterSeconds is larger than aclCacheSeconds, defaulting to %d", aclJitterSeconds)
+	}
+
+	// A jitter below 0 would make the expiration draw panic.
+	if aclJitterSeconds < 0 {
+		aclJitterSeconds = 0
+	}
+
+	// A cache time of 0 (or less) means do not cache: the stores neither store nor read that result.
+	switch {
+	case authCacheSeconds <= 0 && aclCacheSeconds <= 0:
+		log.Info("cache is off for auth and ACL results: auth_cache_seconds and acl_cache_seconds are 0 or less")
+	case authCacheSeconds <= 0:
+		log.Info("cache is off for auth results: auth_cache_seconds is 0 or less")
+	case aclCacheSeconds <= 0:
+		log.Info("cache is off for ACL results: acl_cache_seconds is 0 or less")
 	}
 
 	reset := false
