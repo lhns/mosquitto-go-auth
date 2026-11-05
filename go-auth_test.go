@@ -34,6 +34,8 @@ func (m *mockBackends) CacheDeadline(username string, acl bool) (time.Time, bool
 
 func (m *mockBackends) Halt() {}
 
+func (m *mockBackends) LogUsername(username string) string { return username }
+
 var errBackendFailure = errors.New("simulated backend failure")
 
 func Test_authUnpwdCheck(t *testing.T) {

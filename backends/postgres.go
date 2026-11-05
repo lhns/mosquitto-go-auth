@@ -13,7 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//Postgres holds all fields of the postgres db connection.
+// Postgres holds all fields of the postgres db connection.
 type Postgres struct {
 	DB             *sqlx.DB
 	Host           string
@@ -29,6 +29,7 @@ type Postgres struct {
 	SSLKey         string
 	SSLRootCert    string
 	hasher         hashing.HashComparer
+	hideToken      bool // a jwt backend is configured: the username can be a token
 	maxLifeTime    int64
 
 	connectTries int
@@ -181,7 +182,7 @@ func NewPostgres(authOpts map[string]string, logLevel log.Level, hasher hashing.
 
 }
 
-//GetUser checks that the username exists and the given password hashes to the same password.
+// GetUser checks that the username exists and the given password hashes to the same password.
 func (o Postgres) GetUser(username, password, clientid string) (bool, error) {
 
 	var pwHash sql.NullString
@@ -193,12 +194,13 @@ func (o Postgres) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("PG get user error: %s", err)
 		return false, err
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("PG get user error: user %s not found", username)
+		log.Debugf("PG get user error: user %s not found", logUsername(o.hideToken, username))
 		return false, err
 	}
 
@@ -210,7 +212,7 @@ func (o Postgres) GetUser(username, password, clientid string) (bool, error) {
 
 }
 
-//GetSuperuser checks that the username meets the superuser query.
+// GetSuperuser checks that the username meets the superuser query.
 func (o Postgres) GetSuperuser(username string) (bool, error) {
 
 	//If there's no superuser query, return false.
@@ -227,12 +229,13 @@ func (o Postgres) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("PG get superuser error: %s", err)
 		return false, err
 	}
 
 	if !count.Valid {
-		log.Debugf("PG get superuser error: user %s not found", username)
+		log.Debugf("PG get superuser error: user %s not found", logUsername(o.hideToken, username))
 		return false, nil
 	}
 
@@ -244,7 +247,7 @@ func (o Postgres) GetSuperuser(username string) (bool, error) {
 
 }
 
-//CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
+// CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
 func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
 
 	//If there's no acl query, assume all privileges for all users.
@@ -257,6 +260,7 @@ func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("PG check acl error: %s", err)
 		return false, err
 	}
@@ -272,12 +276,12 @@ func (o Postgres) CheckAcl(username, topic, clientid string, acc int32) (bool, e
 
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o Postgres) GetName() string {
 	return "Postgres"
 }
 
-//Halt closes the mysql connection.
+// Halt closes the postgres connection.
 func (o Postgres) Halt() {
 	if o.DB != nil {
 		err := o.DB.Close()

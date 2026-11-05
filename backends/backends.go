@@ -3,6 +3,7 @@ package backends
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,6 +14,18 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
+)
+
+// hiddenUsername stands for a username that must not appear in logs and errors.
+const hiddenUsername = "<hidden>"
+
+const (
+	// hiddenErrorText replaces an error text that holds a cut-off username.
+	hiddenErrorText = "error (text hidden: it may contain the username)"
+	// An error with any truncatedTokenWindowLen characters long part of a username of at least
+	// truncatedTokenMinLen characters, but not the whole username, is taken for a cut-off or sliced one.
+	truncatedTokenMinLen    = 32
+	truncatedTokenWindowLen = 16
 )
 
 type Backend interface {
@@ -41,6 +54,7 @@ type Backends struct {
 
 	disableSuperuser    bool
 	exhaustBackendFirst bool
+	jwtConfigured       bool
 	sortedBackends      []string
 }
 
@@ -122,6 +136,12 @@ func Initialize(authOpts map[string]string, logLevel log.Level, version string) 
 		}
 	}
 
+	for _, backend := range backends {
+		if backend == jwtBackend {
+			b.jwtConfigured = true
+		}
+	}
+
 	err := b.addBackends(authOpts, logLevel, backends, version)
 	if err != nil {
 		return nil, err
@@ -160,7 +180,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("backend registered: %s", beIface.GetName())
-				b.backends[postgresBackend] = beIface.(Postgres)
+				b.backends[postgresBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case jwtBackend:
 			b.jwtMode = authOpts["jwt_mode"]
@@ -195,7 +215,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[mysqlBackend] = beIface.(Mysql)
+				b.backends[mysqlBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case httpBackend:
 			beIface, err = NewHTTP(authOpts, logLevel, version)
@@ -203,7 +223,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[httpBackend] = beIface.(HTTP)
+				b.backends[httpBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case sqliteBackend:
 			beIface, err = NewSqlite(authOpts, logLevel, hasher)
@@ -211,7 +231,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[sqliteBackend] = beIface.(Sqlite)
+				b.backends[sqliteBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case mongoBackend:
 			beIface, err = NewMongo(authOpts, logLevel, hasher)
@@ -227,7 +247,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[grpcBackend] = beIface.(*GRPC)
+				b.backends[grpcBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case jsBackend:
 			beIface, err = NewJavascript(authOpts, logLevel)
@@ -235,7 +255,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[jsBackend] = beIface.(*Javascript)
+				b.backends[jsBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case ldapBackend:
 			beIface, err = NewLDAP(authOpts, logLevel)
@@ -243,7 +263,7 @@ func (b *Backends) addBackends(authOpts map[string]string, logLevel log.Level, b
 				log.Fatalf("Backend register error: couldn't initialize %s backend with error %s.", bename, err)
 			} else {
 				log.Infof("Backend registered: %s", beIface.GetName())
-				b.backends[ldapBackend] = beIface.(*LDAP)
+				b.backends[ldapBackend] = withHideToken(beIface, b.jwtConfigured)
 			}
 		case pluginBackend:
 			beIface, err = NewCustomPlugin(authOpts, logLevel)
@@ -309,6 +329,84 @@ func (b *Backends) setCheckers(authOpts map[string]string) error {
 	return nil
 }
 
+// withHideToken sets hideToken on the backends that echo external error text, and gives the
+// backend back (the sql, http backends are values, so they are copied).
+func withHideToken(be Backend, hide bool) Backend {
+	switch be := be.(type) {
+	case Postgres:
+		be.hideToken = hide
+		return be
+	case Mysql:
+		be.hideToken = hide
+		return be
+	case Sqlite:
+		be.hideToken = hide
+		return be
+	case HTTP:
+		be.hideToken = hide
+		return be
+	case *LDAP:
+		be.hideToken = hide
+	case *GRPC:
+		be.hideToken = hide
+	case *Javascript:
+		be.hideToken = hide
+	}
+	return be
+}
+
+// hideToken replaces the username in the text of an error. With a jwt backend the username can be
+// a token, and a database or directory error can quote it (for example the cast error of a uuid column).
+// Without a jwt backend the error is returned unchanged.
+//
+// A driver may cut the text of an error (MySQL limits messages to 512 bytes), which leaves a part of
+// a long username that the exact match misses. Then the text is replaced as a whole.
+func hideToken(hide bool, err error, username string) error {
+	if !hide || err == nil || username == "" {
+		return err
+	}
+	if text := hideText(err.Error(), username); text != err.Error() {
+		return errors.New(text)
+	}
+	return err
+}
+
+// hideText is hideToken for a text, such as the reply of an auth server. The whole username is
+// replaced first, also in its URL-encoded forms (a url.Error quotes a redirect URL). A part of the
+// username that is left (a cut-off copy, a signature or a slice a script quotes) hides the whole text.
+func hideText(text, username string) string {
+	if username == "" {
+		return text
+	}
+	text = strings.ReplaceAll(text, username, hiddenUsername)
+	for _, encoded := range []string{url.QueryEscape(username), url.PathEscape(username)} {
+		if encoded != username {
+			text = strings.ReplaceAll(text, encoded, hiddenUsername)
+		}
+	}
+	if len(username) >= truncatedTokenMinLen {
+		for i := 0; i+truncatedTokenWindowLen <= len(username); i++ {
+			if strings.Contains(text, username[i:i+truncatedTokenWindowLen]) {
+				return hiddenErrorText
+			}
+		}
+	}
+	return text
+}
+
+// logUsername returns the username for debug logs, or a placeholder when hide is set.
+func logUsername(hide bool, username string) string {
+	if hide {
+		return hiddenUsername
+	}
+	return username
+}
+
+// LogUsername returns the username for debug logs, or a placeholder when it must not be shown.
+func (b *Backends) LogUsername(username string) string {
+	return logUsername(b.jwtConfigured, username)
+}
+
 // setPrefixes sets options for prefixes handling.
 func (b *Backends) setPrefixes(authOpts map[string]string, backends []string) {
 	checkPrefix, ok := authOpts["check_prefix"]
@@ -352,10 +450,11 @@ func (b *Backends) setPrefixes(authOpts map[string]string, backends []string) {
 	b.checkPrefix = true
 }
 
-// checkPrefix checks if a username contains a valid prefix. If so, returns ok and the suitable backend name; else, !ok and empty string.
+// lookupPrefix checks if a username contains a valid prefix. If so, returns ok and the suitable
+// backend name; else, !ok and empty string.
 func (b *Backends) lookupPrefix(username string) (bool, string) {
 	if _, backend, ok := b.splitPrefix(username); ok {
-		log.Debugf("Found prefix for user %s, using backend %s.", username, backend)
+		log.Debugf("Found prefix for user %s, using backend %s.", b.LogUsername(username), backend)
 		return true, backend
 	}
 	return false, ""
@@ -421,6 +520,14 @@ func traceBackendCall(ctx context.Context, bename, op string, fn func(context.Co
 	return ok, err
 }
 
+// traceCall is traceBackendCall for a call with username: with a jwt backend the username can be a
+// token, so the error text, which any backend (mongo, redis, a custom plugin) can fill with it, is
+// hidden here, where the error leaves the backends.
+func (b *Backends) traceCall(ctx context.Context, bename, op, username string, fn func(context.Context) (bool, error)) (bool, error) {
+	ok, err := traceBackendCall(ctx, bename, op, fn)
+	return ok, hideToken(b.jwtConfigured, err, username)
+}
+
 // AuthUnpwdCheck checks user authentication.
 func (b *Backends) AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error) {
 	var authenticated bool
@@ -450,11 +557,11 @@ func (b *Backends) AuthUnpwdCheck(ctx context.Context, username, password, clien
 	}
 	var backend = b.backends[bename]
 
-	authenticated, err = traceBackendCall(ctx, bename, "get_user", func(context.Context) (bool, error) {
+	authenticated, err = b.traceCall(ctx, bename, "get_user", username, func(context.Context) (bool, error) {
 		return backend.GetUser(username, password, clientid)
 	})
 	if authenticated && err == nil {
-		log.Debugf("user %s authenticated with backend %s", username, backend.GetName())
+		log.Debugf("user %s authenticated with backend %s", b.LogUsername(username), backend.GetName())
 	}
 
 	return authenticated, err
@@ -466,13 +573,13 @@ func (b *Backends) checkAuth(ctx context.Context, username, password, clientid s
 	for _, bename := range b.userCheckers {
 		var backend = b.backends[bename]
 
-		log.Debugf("checking user %s with backend %s", username, backend.GetName())
+		log.Debugf("checking user %s with backend %s", b.LogUsername(username), backend.GetName())
 
-		ok, getUserErr := traceBackendCall(ctx, bename, "get_user", func(context.Context) (bool, error) {
+		ok, getUserErr := b.traceCall(ctx, bename, "get_user", username, func(context.Context) (bool, error) {
 			return backend.GetUser(username, password, clientid)
 		})
 		if ok && getUserErr == nil {
-			log.Debugf("user %s authenticated with backend %s", username, backend.GetName())
+			log.Debugf("user %s authenticated with backend %s", b.LogUsername(username), backend.GetName())
 			return true, nil
 		} else if getUserErr != nil && err == nil {
 			err = getUserErr
@@ -512,12 +619,12 @@ func (b *Backends) AuthAclCheck(ctx context.Context, clientid, username, topic s
 	if !b.disableSuperuser && checkRegistered(bename, b.superuserCheckers) {
 		log.Debugf("Superuser check with backend %s", backend.GetName())
 
-		aclCheck, err = traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+		aclCheck, err = b.traceCall(ctx, bename, "get_superuser", username, func(context.Context) (bool, error) {
 			return backend.GetSuperuser(username)
 		})
 
 		if aclCheck && err == nil {
-			log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
+			log.Debugf("superuser %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 		}
 	}
 	// If not superuser, check acl.
@@ -527,18 +634,18 @@ func (b *Backends) AuthAclCheck(ctx context.Context, clientid, username, topic s
 		}
 
 		log.Debugf("Acl check with backend %s", backend.GetName())
-		ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+		ok, checkACLErr := b.traceCall(ctx, bename, "check_acl", username, func(context.Context) (bool, error) {
 			return backend.CheckAcl(username, topic, clientid, int32(acc))
 		})
 		if ok && checkACLErr == nil {
 			aclCheck = true
-			log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
+			log.Debugf("user %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 		} else if checkACLErr != nil && err == nil {
 			err = checkACLErr
 		}
 	}
 
-	log.Debugf("Acl is %t for user %s", aclCheck, username)
+	log.Debugf("Acl is %t for user %s", aclCheck, b.LogUsername(username))
 	return aclCheck, err
 }
 
@@ -562,11 +669,11 @@ func (b *Backends) exhaustBackendsInOrder(ctx context.Context, username, topic, 
 
 		if !b.disableSuperuser && checkRegistered(bename, b.superuserCheckers) {
 			log.Debugf("superuser check with backend %s", backend.GetName())
-			ok, getSuperuserErr := traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+			ok, getSuperuserErr := b.traceCall(ctx, bename, "get_superuser", username, func(context.Context) (bool, error) {
 				return backend.GetSuperuser(username)
 			})
 			if ok && getSuperuserErr == nil {
-				log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
+				log.Debugf("superuser %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 				return true, nil
 			} else if getSuperuserErr != nil && err == nil {
 				err = getSuperuserErr
@@ -575,11 +682,11 @@ func (b *Backends) exhaustBackendsInOrder(ctx context.Context, username, topic, 
 
 		if checkRegistered(bename, b.aclCheckers) {
 			log.Debugf("acl check with backend %s", backend.GetName())
-			ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+			ok, checkACLErr := b.traceCall(ctx, bename, "check_acl", username, func(context.Context) (bool, error) {
 				return backend.CheckAcl(username, topic, clientid, int32(acc))
 			})
 			if ok && checkACLErr == nil {
-				log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
+				log.Debugf("user %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 				return true, nil
 			} else if checkACLErr != nil && err == nil {
 				err = checkACLErr
@@ -600,11 +707,11 @@ func (b *Backends) checkSuperuserThenACL(ctx context.Context, username, topic, c
 			var backend = b.backends[bename]
 
 			log.Debugf("superuser check with backend %s", backend.GetName())
-			ok, getSuperuserErr := traceBackendCall(ctx, bename, "get_superuser", func(context.Context) (bool, error) {
+			ok, getSuperuserErr := b.traceCall(ctx, bename, "get_superuser", username, func(context.Context) (bool, error) {
 				return backend.GetSuperuser(username)
 			})
 			if ok && getSuperuserErr == nil {
-				log.Debugf("superuser %s acl authenticated with backend %s", username, backend.GetName())
+				log.Debugf("superuser %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 				return true, nil
 			} else if getSuperuserErr != nil && err == nil {
 				err = getSuperuserErr
@@ -616,11 +723,11 @@ func (b *Backends) checkSuperuserThenACL(ctx context.Context, username, topic, c
 		var backend = b.backends[bename]
 
 		log.Debugf("Acl check with backend %s", backend.GetName())
-		ok, checkACLErr := traceBackendCall(ctx, bename, "check_acl", func(context.Context) (bool, error) {
+		ok, checkACLErr := b.traceCall(ctx, bename, "check_acl", username, func(context.Context) (bool, error) {
 			return backend.CheckAcl(username, topic, clientid, int32(acc))
 		})
 		if ok && checkACLErr == nil {
-			log.Debugf("user %s acl authenticated with backend %s", username, backend.GetName())
+			log.Debugf("user %s acl authenticated with backend %s", b.LogUsername(username), backend.GetName())
 			return true, nil
 		} else if checkACLErr != nil && err == nil {
 			err = checkACLErr

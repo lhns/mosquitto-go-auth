@@ -16,7 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-//Mysql holds all fields of the Mysql db connection.
+// Mysql holds all fields of the Mysql db connection.
 type Mysql struct {
 	DB                   *sqlx.DB
 	Host                 string
@@ -35,6 +35,7 @@ type Mysql struct {
 	SocketPath           string
 	AllowNativePasswords bool
 	hasher               hashing.HashComparer
+	hideToken            bool // a jwt backend is configured: the username can be a token
 	maxLifeTime          int64
 
 	connectTries int
@@ -234,7 +235,7 @@ func NewMysql(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 
 }
 
-//GetUser checks that the username exists and the given password hashes to the same password.
+// GetUser checks that the username exists and the given password hashes to the same password.
 func (o Mysql) GetUser(username, password, clientid string) (bool, error) {
 
 	var pwHash sql.NullString
@@ -246,12 +247,13 @@ func (o Mysql) GetUser(username, password, clientid string) (bool, error) {
 			return false, nil
 		}
 
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("MySql get user error: %s", err)
 		return false, err
 	}
 
 	if !pwHash.Valid {
-		log.Debugf("MySql get user error: user %s not found", username)
+		log.Debugf("MySql get user error: user %s not found", logUsername(o.hideToken, username))
 		return false, nil
 	}
 
@@ -263,7 +265,7 @@ func (o Mysql) GetUser(username, password, clientid string) (bool, error) {
 
 }
 
-//GetSuperuser checks that the username meets the superuser query.
+// GetSuperuser checks that the username meets the superuser query.
 func (o Mysql) GetSuperuser(username string) (bool, error) {
 
 	//If there's no superuser query, return false.
@@ -280,12 +282,13 @@ func (o Mysql) GetSuperuser(username string) (bool, error) {
 			return false, nil
 		}
 
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("MySql get superuser error: %s", err)
 		return false, err
 	}
 
 	if !count.Valid {
-		log.Debugf("MySql get superuser error: user %s not found", username)
+		log.Debugf("MySql get superuser error: user %s not found", logUsername(o.hideToken, username))
 		return false, nil
 	}
 
@@ -297,7 +300,7 @@ func (o Mysql) GetSuperuser(username string) (bool, error) {
 
 }
 
-//CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
+// CheckAcl gets all acls for the username and tries to match against topic, acc, and username/clientid if needed.
 func (o Mysql) CheckAcl(username, topic, clientid string, acc int32) (bool, error) {
 	//If there's no acl query, assume all privileges for all users.
 	if o.AclQuery == "" {
@@ -309,6 +312,7 @@ func (o Mysql) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 	err := o.DB.Select(&acls, o.AclQuery, username, acc)
 
 	if err != nil {
+		err = hideToken(o.hideToken, err, username)
 		log.Debugf("MySql check acl error: %s", err)
 		return false, err
 	}
@@ -324,12 +328,12 @@ func (o Mysql) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 
 }
 
-//GetName returns the backend's name
+// GetName returns the backend's name
 func (o Mysql) GetName() string {
 	return "Mysql"
 }
 
-//Halt closes the mysql connection.
+// Halt closes the mysql connection.
 func (o Mysql) Halt() {
 	if o.DB != nil {
 		err := o.DB.Close()

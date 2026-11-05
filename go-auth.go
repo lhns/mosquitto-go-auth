@@ -25,6 +25,7 @@ type BackendsChecker interface {
 	AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error)
 	AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error)
 	CacheDeadline(username string, acl bool) (deadline time.Time, capped bool)
+	LogUsername(username string) string
 	Halt()
 }
 
@@ -368,18 +369,31 @@ func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
 	return AuthRejected
 }
 
+// usernameLoggable tells if a username may appear in spans: with a JWT backend it can be a token.
+func usernameLoggable(username string) bool {
+	return authPlugin.backends.LogUsername(username) == username
+}
+
+// clientIDLoggable tells if the client ID may appear in spans. With use_clientid_as_username
+// it carries the username, so it is hidden as the username is.
+func clientIDLoggable(clientid string) bool {
+	return !authPlugin.useClientidAsUsername || usernameLoggable(clientid)
+}
+
 func authUnpwdCheck(username, password, clientid string) (authenticated bool, err error) {
 	var cached bool
 	var granted bool
 
 	username = setUsername(username, clientid)
 
-	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check",
-		trace.WithAttributes(
-			attribute.String("auth.username", username),
-			attribute.String("auth.client_id", clientid),
-		),
-	)
+	var attrs []attribute.KeyValue
+	if clientIDLoggable(clientid) {
+		attrs = append(attrs, attribute.String("auth.client_id", clientid))
+	}
+	if usernameLoggable(username) {
+		attrs = append(attrs, attribute.String("auth.username", username))
+	}
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check", trace.WithAttributes(attrs...))
 	start := time.Now()
 	defer func() {
 		result := authResult(authenticated, err)
@@ -400,10 +414,10 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 	cacheable := authPlugin.useCache && !jwtExpired(username, false)
 
 	if cacheable {
-		log.WithContext(ctx).Debugf("checking auth cache for %s", username)
+		log.WithContext(ctx).Debugf("checking auth cache for %s", authPlugin.backends.LogUsername(username))
 		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password, clientid)
 		if cached {
-			log.WithContext(ctx).Debugf("found in cache: %s", username)
+			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
 			// The exp may have passed while the cache was read.
 			if !jwtExpired(username, false) {
 				span.AddEvent("cache.hit")
@@ -423,7 +437,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		if authenticated {
 			authGranted = "true"
 		}
-		log.WithContext(ctx).Debugf("setting auth cache for %s", username)
+		log.WithContext(ctx).Debugf("setting auth cache for %s", authPlugin.backends.LogUsername(username))
 		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, clientid, authGranted); setAuthErr != nil {
 			log.WithContext(ctx).Errorf("set auth cache: %s", setAuthErr)
 			return false, setAuthErr
@@ -462,14 +476,17 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	username = setUsername(username, clientid)
 
-	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check",
-		trace.WithAttributes(
-			attribute.String("auth.username", username),
-			attribute.String("auth.client_id", clientid),
-			attribute.String("auth.topic", topic),
-			attribute.Int("auth.access", acc),
-		),
-	)
+	attrs := []attribute.KeyValue{
+		attribute.String("auth.topic", topic),
+		attribute.Int("auth.access", acc),
+	}
+	if clientIDLoggable(clientid) {
+		attrs = append(attrs, attribute.String("auth.client_id", clientid))
+	}
+	if usernameLoggable(username) {
+		attrs = append(attrs, attribute.String("auth.username", username))
+	}
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check", trace.WithAttributes(attrs...))
 	start := time.Now()
 	defer func() {
 		result := authResult(aclCheck, err)
@@ -484,10 +501,10 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 	cacheable := authPlugin.useCache && !jwtExpired(username, true)
 
 	if cacheable {
-		log.WithContext(ctx).Debugf("checking acl cache for %s", username)
+		log.WithContext(ctx).Debugf("checking acl cache for %s", authPlugin.backends.LogUsername(username))
 		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
 		if cached {
-			log.WithContext(ctx).Debugf("found in cache: %s", username)
+			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
 			// The exp may have passed while the cache was read.
 			if !jwtExpired(username, true) {
 				span.AddEvent("cache.hit")
@@ -507,14 +524,14 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		if aclCheck {
 			authGranted = "true"
 		}
-		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, username)
+		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, authPlugin.backends.LogUsername(username))
 		if setACLErr := authPlugin.cache.SetACLRecord(ctx, username, topic, clientid, acc, authGranted); setACLErr != nil {
 			log.WithContext(ctx).Errorf("set acl cache: %s", setACLErr)
 			return false, setACLErr
 		}
 	}
 
-	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, username)
+	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, authPlugin.backends.LogUsername(username))
 	return aclCheck, err
 }
 
