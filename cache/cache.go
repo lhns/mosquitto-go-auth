@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"math/rand"
@@ -283,8 +284,9 @@ func (s *redisStore) checkRecord(ctx context.Context, record string, expirationT
 		present, granted, err = s.getAndRefresh(ctx, record, expirationTime)
 	}
 
-	if err != nil {
-		log.Debugf("set cache error: %s", err)
+	// A miss is not an error.
+	if err != nil && !errors.Is(err, goredis.Nil) {
+		log.Debugf("check cache error: %s", err)
 	}
 
 	return present, granted
