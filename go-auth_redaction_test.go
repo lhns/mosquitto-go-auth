@@ -220,8 +220,7 @@ func TestRedaction_EmptyCredentialsLog(t *testing.T) {
 
 			text := ""
 			for _, e := range hook.AllEntries() {
-				text += fmt.Sprintf("%s %v
-", e.Message, e.Data)
+				text += fmt.Sprintf("%s %v\n", e.Message, e.Data)
 			}
 			require.Contains(t, text, "empty username or password not allowed")
 			if tc.visible {
