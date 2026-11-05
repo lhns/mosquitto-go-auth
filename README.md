@@ -280,6 +280,8 @@ Set all other plugin options below in the same file.
 
 **Note:** Do not set `password_file` or `acl_file` in `mosquitto.conf`, as they bypass the plugin's auth backends entirely.
 
+**Note:** Load the plugin only once. The plugin has one global state, so it refuses a second load (for example one `auth_plugin` line for each listener with `per_listener_settings true`). The broker then does not start.
+
 #### Backends order
 
 By default, the plugin won't establish any order for checks (Go maps guarantee no order).
@@ -436,6 +438,20 @@ auth_opt_hasher_memory 4096            # amount of memory (in kibibytes) to use
 auth_opt_hasher_parallelism 2          # degree of parallelism (i.e. number of threads)
 ```
 
+##### Stored hash validation
+
+A stored `PBKDF2` or `Argon2ID` hash must be well formed, or the password check fails. All fields must be present, and the key must decode to the stored key length (`l` in the `pbkdf2-sha512$...` format). The plugin also refuses a stored hash that is outside these limits, before it does any key derivation:
+
+- the whole hash is longer than 4096 bytes,
+- the key or the salt is longer than 512 bytes,
+- `PBKDF2` uses fewer than 1 or more than 5000000 iterations,
+- `bcrypt` uses a cost above 16,
+- `Argon2ID` uses more than 4 GiB of memory (`m` over 4194304; 1 GiB, `m` over 1048576, on 32-bit builds), fewer than 1 or more than 32 iterations, or a parallelism of less than 1 or more than 64.
+
+The limits only refuse implausible values, they do not guarantee that the memory fits the device: a 1 GiB `m` on a board with 512 MB still fails, so choose `m` for the smallest host.
+
+`Argon2ID` allocates `m` KiB for every login attempt, also for a wrong password, so keep `m` moderate.
+
 **These options may be defined for each backend that needs a hasher by prepending the backend's name to the option, e.g. for setting `argon2id` as `Postgres'` hasher**:
 
 ```
@@ -546,6 +562,20 @@ Also, these are the current available values from `mosquitto`:
 
 If you're using prior versions then `MOSQ_ACL_SUBSCRIBE` is not available and you don't need to worry about it.
 
+#### ACL topic matching
+
+These rules apply to the ACL checks of the `files`, `mysql`, `postgres`, `sqlite`, `redis` and `mongo` backends, and to the JWT `local` and `files` modes. The `ldap` backend uses only the `$` paragraph below. Placeholders (`%u`, `%c`) are not substituted in `ldap` rules.
+
+A topic that starts with `$` is not matched by an allow rule whose first level is `+` or `#` (MQTT section 4.7.2). For example, the rule `#` does not grant `$SYS/broker/uptime`. To grant a `$` topic, use a rule that names the prefix, for example `$SYS/#`. A shared subscription filter (`$share/<group>/...`) is not changed by this rule. Deny rules (`files` backend) are not limited like this: a deny rule that starts with `#` or `+` still matches `$` topics, as in earlier versions.
+
+When a pattern rule uses `%u` (username) or `%c` (clientid), the plugin checks the value it inserts:
+
+- If the value is empty or has `/` or NUL, a `pattern` allow rule does not apply. This is like mosquitto, which skips `%u` patterns for a client without a username. A `pattern deny` rule is matched with the value inserted as it is, like it would be without this check, so that a skipped deny rule cannot let a broader rule grant the topic.
+- If the value has `+` or `#`, a `pattern` allow rule does not apply either, but a `pattern deny` rule with such a value denies the request, because a wildcard would widen the rule. This means that every topic is denied for that client.
+- A value is substituted once: a client ID that is literally `%u` is not substituted again.
+
+This extends the check that mosquitto does with `auth_plugin_deny_special_chars true`. The plugin logs a skipped or rejected value at debug level, without the value.
+
 #### Backend options
 
 Any other options with a leading ```auth_opt_``` are handed to the plugin and used by the backends.
@@ -593,9 +623,9 @@ Usage of ./pw:
   -e string
       salt encoding (default "base64")
   -h string
-      hasher: pbkdf2, argon2 or bcrypt (default "pbkdf2")
+      hasher: pbkdf2, argon2id or bcrypt (default "pbkdf2")
   -i int
-      hash iterations: defaults to 100000 for pbkdf2, please set to a reasonable value for argon2 (default 100000)
+      hash iterations: defaults to 100000 for pbkdf2 and 3 for argon2
   -l int
       key length, recommended values are 32 for sha256 and 64 for sha512
   -m int
@@ -647,6 +677,8 @@ The `ACLs` file follows mosquitto's regular syntax: [mosquitto(5)](https://mosqu
 
 There's no special `superuser` check for this backend since granting a user all permissions on `#` works in the same way.
 Furthermore, if this is **the only backend registered**, then providing no `ACLs` file path will default to grant all permissions for authenticated users when doing `ACL` checks (but then, why use a plugin if you can just use Mosquitto's static file checks, right?): if, instead, no `ACLs` file path is provided but **there are more backends registered**, this backend will default to deny any permissions for any user (again, back to basics).
+
+When the broker reloads its configuration (SIGHUP), this backend (and the JWT `files` mode) reads its files again. The new content replaces the old content: a user or a rule that you removed from a file is removed from the plugin. A password line that is not well formatted is skipped and logged, at startup and on reload. If a file cannot be read, or the ACL file has a format error, the reload fails: the plugin keeps the last good content and logs a warning. Results in the auth and ACL caches stay until their TTL. Replace the password and ACL files atomically (write a temporary file, then rename it) before you send SIGHUP: a reload that reads a half-written file skips the unreadable lines.
 
 #### Testing Files
 
@@ -937,12 +969,16 @@ The `jwt` backend is for auth with a JWT remote API, a local DB, a JavaScript VM
 | --------------------------------- | --------- | :-------: | ---------------------------------------------------------------------------------------------|
 | auth_opt_jwt_mode                 |           |     Y     | local, remote, js, files                                                                     |
 | auth_opt_jwt_parse_token          |   false   |     N     | Parse token in remote/js modes                                                               |
-| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local mode or when parse_token is true (unless secret_file is used) |
+| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local/files mode or when parse_token is true (unless secret_file is used) |
 | auth_opt_jwt_secret_file          |           |    Y/N    | Path to file containing JWT secret (alternative to jwt_secret)                               |
 | auth_opt_jwt_userfield            |           |     N     | When `Username`, expect `username` as part of claims                                         |
 | auth_opt_jwt_skip_user_expiration |   false   |     N     | Skip token expiration in user/superuser checks                                               |
 | auth_opt_jwt_skip_acl_expiration  |   false   |     N     | Skip token expiration in ACL checks                                                          |
 | auth_opt_jwt_user_agent           | mosquitto |     N     | User agent for requests                                                                      |
+
+The type of the secret sets the accepted algorithms. A PEM RSA public key accepts RS256, RS384 and RS512. A PEM EC public key accepts ES256, ES384 and ES512. Any other value is an HMAC secret and accepts HS256, HS384 and HS512. A secret that contains a PEM block but is not a supported public key stops the plugin at startup. A missing or empty `jwt_secret` (or an empty `jwt_secret_file`) stops the plugin at startup in local and files mode, and in remote and js mode when `jwt_parse_token` is true.
+
+`jwt_skip_user_expiration` and `jwt_skip_acl_expiration` skip only the expiration check. The signature and the other claim checks still apply. The backend rejects a malformed token.
 
 #### Remote mode
 
@@ -976,7 +1012,7 @@ For all URIs, the backend will send a request with the `Authorization` header se
 
 When `jwt_parse_token` is set, the backend will parse the token using `jwt_secret` and extract the username from either the claim's `Subject` (`sub` field), or from the `username` field when `jwt_userfield` is set to `Username`. This `username` will be sent along other params in all requests, and the `Authorization` header will be set to `Bearer token` as usual.
 
-Notice that failing to provide `jwt_secret` or passing a wrong one will result in an error when parsing the token and the request will not be made.
+Notice that `jwt_secret` (or `jwt_secret_file`) is required when `jwt_parse_token` is set: the plugin refuses to start without it. Passing a wrong one will result in an error when parsing the token and the request will not be made.
 Set these options only if you intend to keep the plugin synced with your JWT service and wish for the former to pre-parse the token.
 
 ##### Response mode
@@ -1389,7 +1425,9 @@ Options for `mongo` are the following:
 | auth_opt_mongo_acls                  | acls         |     N     | ACL collection                       |
 | auth_opt_mongo_disable_superuser     | true         |     N     | Disable query to check for superuser |
 | auth_opt_mongo_with_tls              | false        |     N     | Connect with TLS                     |
-| auth_opt_mongo_insecure_skip_verify  | false        |     N     | Verify server's certificate chain    |
+| auth_opt_mongo_insecure_skip_verify  | false        |     N     | Skip server certificate verification |
+
+With `auth_opt_mongo_with_tls true`, the plugin connects with TLS and checks the server certificate against the system trust store, unless `auth_opt_mongo_insecure_skip_verify true` is set (not recommended outside tests). The plugin also reads the old name `auth_opt_mongo_use_tls`.
 
 
 If you experience any problem connecting to a replica set, please refer to [this issue](https://github.com/iegomez/mosquitto-go-auth/issues/32).

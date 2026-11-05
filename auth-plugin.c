@@ -31,6 +31,10 @@ int mosquitto_auth_plugin_version(void) {
   #endif
 }
 
+// instance_token is the user data of the one initialized instance.
+// Cleanup does its work only for this user data.
+static char instance_token;
+
 int mosquitto_auth_plugin_init(void **user_data, struct mosquitto_auth_opt *auth_opts, int auth_opt_count) {
   /*
     Pass auth_opts hash as keys and values char* arrays to Go in order to initialize them there.
@@ -54,16 +58,28 @@ int mosquitto_auth_plugin_init(void **user_data, struct mosquitto_auth_opt *auth
   sprintf(versionArray, "%i.%i.%i", LIBMOSQUITTO_MAJOR, LIBMOSQUITTO_MINOR, LIBMOSQUITTO_REVISION);
 
 
-  AuthPluginInit(keysSlice, valuesSlice, opts_count, versionArray);
+  // The plugin state is global. AuthPluginInit refuses a second init, for example one plugin line for each listener.
+  if (!AuthPluginInit(keysSlice, valuesSlice, opts_count, versionArray)) {
+    return MOSQ_ERR_UNKNOWN;
+  }
+  *user_data = &instance_token;
   return MOSQ_ERR_SUCCESS;
 }
 
 int mosquitto_auth_plugin_cleanup(void *user_data, struct mosquitto_auth_opt *auth_opts, int auth_opt_count) {
+  // The broker can call cleanup for an instance that init refused. That must not stop the first instance.
+  if (user_data != &instance_token) {
+    return MOSQ_ERR_SUCCESS;
+  }
   AuthPluginCleanup();
   return MOSQ_ERR_SUCCESS;
 }
 
 int mosquitto_auth_security_init(void *user_data, struct mosquitto_auth_opt *auth_opts, int auth_opt_count, bool reload) {
+  // The broker calls security_cleanup and then security_init with reload=true on SIGHUP.
+  if (reload) {
+    AuthPluginReload();
+  }
   return MOSQ_ERR_SUCCESS;
 }
 

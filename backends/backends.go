@@ -100,7 +100,6 @@ var allowedBackendsOptsPrefix = map[string]string{
 
 // Initialize sets general options, tries to build the backends and register their checkers.
 func Initialize(authOpts map[string]string, logLevel log.Level, version string) (*Backends, error) {
-
 	b := &Backends{
 		backends:          make(map[string]Backend),
 		aclCheckers:       make([]string, 0),
@@ -737,6 +736,21 @@ func (b *Backends) checkSuperuserThenACL(ctx context.Context, username, topic, c
 
 	// No backend authorized access.
 	return false, err
+}
+
+// Reloader is implemented by the backends and checkers that can reload their data.
+type Reloader interface {
+	Reload() error
+}
+
+// Reload asks each backend that can reload its data (files, JWT files mode) to do it.
+// A failed reload is logged by the backend and does not stop the others.
+func (b *Backends) Reload() {
+	for _, v := range b.backends {
+		if r, ok := v.(Reloader); ok {
+			_ = r.Reload()
+		}
+	}
 }
 
 func (b *Backends) Halt() {

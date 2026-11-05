@@ -54,8 +54,31 @@ const (
 var authOpts map[string]string //Options passed by mosquitto.
 var authPlugin AuthPlugin      //General struct with options and conf.
 
+// pluginLoaded is true from the start of an init until cleanup.
+var pluginLoaded bool
+
+// AuthPluginInit initializes the plugin. It returns false when the plugin is already loaded.
+//
 //export AuthPluginInit
-func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *C.char) {
+func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *C.char) bool {
+	opts := make(map[string]string)
+	for i := 0; i < authOptsNum; i++ {
+		opts[C.GoString(keys[i])] = C.GoString(values[i])
+	}
+
+	return initPlugin(opts, C.GoString(version))
+}
+
+// initPlugin sets the global plugin state from opts.
+// mosquitto can load the plugin more than once, but the state is global.
+// So a second init is refused and the state of the first stays.
+func initPlugin(opts map[string]string, version string) bool {
+	if pluginLoaded {
+		log.Error("plugin init failed: the plugin is already loaded; load it once")
+		return false
+	}
+	pluginLoaded = true
+
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -74,10 +97,7 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		log.Info("telemetry enabled (OTLP)")
 	}
 
-	authOpts = make(map[string]string)
-	for i := 0; i < authOptsNum; i++ {
-		authOpts[C.GoString(keys[i])] = C.GoString(values[i])
-	}
+	authOpts = opts
 
 	if retryCount, ok := authOpts["retry_count"]; ok {
 		retry, err := strconv.Atoi(retryCount)
@@ -141,7 +161,7 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		}
 	}
 
-	authPlugin.backends, err = bes.Initialize(authOpts, authPlugin.logLevel, C.GoString(version))
+	authPlugin.backends, err = bes.Initialize(authOpts, authPlugin.logLevel, version)
 	if err != nil {
 		log.Fatalf("error initializing backends: %s", err)
 	}
@@ -157,6 +177,8 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 	if authPlugin.useCache {
 		setCache(authOpts)
 	}
+
+	return true
 }
 
 func setCache(authOpts map[string]string) {
@@ -537,6 +559,17 @@ func AuthPskKeyGet() bool {
 	return true
 }
 
+// AuthPluginReload runs when the broker reloads its configuration (SIGHUP). It reloads the data of
+// the backends that support it. It does not halt anything.
+//
+//export AuthPluginReload
+func AuthPluginReload() {
+	if b, ok := authPlugin.backends.(interface{ Reload() }); ok {
+		log.Debugln("broker reload: reloading backends")
+		b.Reload()
+	}
+}
+
 //export AuthPluginCleanup
 func AuthPluginCleanup() {
 	log.Info("Cleaning up plugin")
@@ -554,6 +587,8 @@ func AuthPluginCleanup() {
 			log.Warnf("telemetry shutdown: %s", err)
 		}
 	}
+
+	pluginLoaded = false
 }
 
 func setUsername(username, clientid string) string {

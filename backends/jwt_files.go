@@ -54,6 +54,12 @@ func (o *filesJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bo
 	return o.checker.CheckAcl(username, topic, clientid, acc)
 }
 
+// Reload reads the ACL file again. It keeps the last good data on failure.
+func (o *filesJWTChecker) Reload() error {
+	return o.checker.Reload()
+}
+
+// Halt calls Halt of the files checker, which has nothing to stop.
 func (o *filesJWTChecker) Halt() {
-	// NO-OP
+	o.checker.Halt()
 }

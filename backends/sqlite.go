@@ -3,7 +3,6 @@ package backends
 import (
 	"database/sql"
 	"strconv"
-	"strings"
 
 	"github.com/iegomez/mosquitto-go-auth/backends/topics"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -187,9 +186,8 @@ func (o Sqlite) CheckAcl(username, topic, clientid string, acc int32) (bool, err
 	}
 
 	for _, acl := range acls {
-		aclTopic := strings.Replace(acl, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-		if topics.Match(aclTopic, topic) {
+		aclTopic, outcome := topics.Substitute(acl, username, clientid)
+		if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}
