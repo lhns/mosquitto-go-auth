@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/iegomez/mosquitto-go-auth/telemetry"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -25,7 +28,13 @@ func (m *mockBackends) AuthAclCheck(ctx context.Context, clientid, username, top
 	return false, nil
 }
 
+func (m *mockBackends) CacheDeadline(username string, acl bool) (time.Time, bool) {
+	return time.Time{}, false
+}
+
 func (m *mockBackends) Halt() {}
+
+func (m *mockBackends) LogUsername(username string) string { return username }
 
 var errBackendFailure = errors.New("simulated backend failure")
 
@@ -207,4 +216,38 @@ func TestAuthAclCheck_EmitsACLDuration(t *testing.T) {
 	m := findMetric(t, rm, "auth.acl_check.duration")
 	require.Equal(t, "s", m.Unit)
 	require.Equal(t, "rejected", resultAttr(t, m))
+}
+
+// The Redis cache keys are keyed with cache_key_secret only: cache_password does not key them. Without
+// the secret, one warning names the option. The secret is never in a log entry.
+func TestRedisCacheKeySecretWarning(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts map[string]string
+		warn int
+	}{
+		{"none", map[string]string{}, 1},
+		{"secret", map[string]string{"cache_key_secret": "s3cret-value"}, 0},
+		{"password only", map[string]string{"cache_password": "pw-value"}, 1},
+		{"both", map[string]string{"cache_key_secret": "s3cret-value", "cache_password": "pw-value"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hook := logtest.NewGlobal()
+			t.Cleanup(hook.Reset)
+			authPlugin = AuthPlugin{backends: &mockBackends{}, ctx: context.Background(), useCache: true}
+			tc.opts["cache_type"] = "redis"
+			tc.opts["cache_port"] = "1" // nothing listens: the start fails after the keys are set
+			setCache(tc.opts)
+
+			warn := 0
+			for _, e := range hook.AllEntries() {
+				if strings.Contains(e.Message, "cache_key_secret") {
+					warn++
+				}
+				require.NotContains(t, e.Message, "s3cret-value")
+				require.NotContains(t, e.Message, "pw-value")
+			}
+			require.Equal(t, tc.warn, warn)
+		})
+	}
 }

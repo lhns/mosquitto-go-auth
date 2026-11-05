@@ -72,10 +72,16 @@ var notPresentJwtToken = jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims
 	"username": "not_present",
 })
 
-var tkOptions = tokenOptions{
-	secret:       jwtSecret,
-	userFieldKey: "username",
+// keyOpts builds token options with the key and allowed algorithms derived from secret.
+func keyOpts(secret []byte) tokenOptions {
+	o := tokenOptions{secret: secret, userFieldKey: "username"}
+	if err := o.parseKey(); err != nil {
+		panic(err) // keyOpts also runs at package init, where there is no *testing.T
+	}
+	return o
 }
+
+var tkOptions = keyOpts(jwtSecret)
 
 func TestJWTClaims(t *testing.T) {
 	Convey("When getting claims", t, func() {
@@ -83,7 +89,7 @@ func TestJWTClaims(t *testing.T) {
 			token, err := jwtToken.SignedString(jwtSecret)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(jwtSecret, token, false)
+			_, err = getJWTClaims(keyOpts(jwtSecret), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -91,7 +97,7 @@ func TestJWTClaims(t *testing.T) {
 			token, err := jwtToken.SignedString([]byte("wrong-secret"))
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(jwtSecret, token, false)
+			_, err = getJWTClaims(keyOpts(jwtSecret), token, false)
 			So(err, ShouldNotBeNil)
 		})
 
@@ -99,7 +105,7 @@ func TestJWTClaims(t *testing.T) {
 			token, err := wrongJwtToken.SignedString(jwtSecret)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(jwtSecret, token, false)
+			_, err = getJWTClaims(keyOpts(jwtSecret), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -107,7 +113,7 @@ func TestJWTClaims(t *testing.T) {
 			token, err := expiredToken.SignedString(jwtSecret)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(jwtSecret, token, false)
+			_, err = getJWTClaims(keyOpts(jwtSecret), token, false)
 			So(err, ShouldNotBeNil)
 		})
 
@@ -115,7 +121,7 @@ func TestJWTClaims(t *testing.T) {
 			token, err := expiredToken.SignedString(jwtSecret)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(jwtSecret, token, true)
+			_, err = getJWTClaims(keyOpts(jwtSecret), token, true)
 			So(err, ShouldBeNil)
 		})
 	})
@@ -148,7 +154,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := rsaToken.SignedString(rsaPrivateKey)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(rsaPublicKeyPEM), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -165,7 +171,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := rsaToken.SignedString(rsaPrivateKey)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(rsaPublicKeyPEM), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -182,7 +188,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := rsaToken.SignedString(rsaPrivateKey)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(rsaPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(rsaPublicKeyPEM), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -211,7 +217,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 				Bytes: wrongPublicKeyBytes,
 			})
 
-			_, err = getJWTClaims(wrongPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(wrongPublicKeyPEM), token, false)
 			So(err, ShouldNotBeNil)
 		})
 	})
@@ -242,7 +248,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := ecToken.SignedString(ecPrivateKey)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(ecPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(ecPublicKeyPEM), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -271,7 +277,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := ecToken.SignedString(ecPrivateKey384)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(ecPublicKeyPEM384, token, false)
+			_, err = getJWTClaims(keyOpts(ecPublicKeyPEM384), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -300,7 +306,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 			token, err := ecToken.SignedString(ecPrivateKey521)
 			So(err, ShouldBeNil)
 
-			_, err = getJWTClaims(ecPublicKeyPEM521, token, false)
+			_, err = getJWTClaims(keyOpts(ecPublicKeyPEM521), token, false)
 			So(err, ShouldBeNil)
 		})
 
@@ -329,7 +335,7 @@ func TestJWTAsymmetricKeys(t *testing.T) {
 				Bytes: wrongPublicKeyBytes,
 			})
 
-			_, err = getJWTClaims(wrongPublicKeyPEM, token, false)
+			_, err = getJWTClaims(keyOpts(wrongPublicKeyPEM), token, false)
 			So(err, ShouldNotBeNil)
 		})
 	})
@@ -383,11 +389,8 @@ func TestJsJWTChecker(t *testing.T) {
 		So(aclResponse, ShouldBeFalse)
 
 		Convey("Tokens may be pre-parsed and passed to the scripts", func() {
-			jsTokenOptions := tokenOptions{
-				parseToken:   true,
-				secret:       jwtSecret,
-				userFieldKey: "username",
-			}
+			jsTokenOptions := keyOpts(jwtSecret)
+			jsTokenOptions.parseToken = true
 
 			authOpts["jwt_js_user_script_path"] = "../test-files/jwt/parsed_user_script.js"
 			authOpts["jwt_js_pass_claims"] = "true"

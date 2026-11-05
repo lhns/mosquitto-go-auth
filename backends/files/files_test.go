@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
-	"time"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
 	"github.com/iegomez/mosquitto-go-auth/hashing"
@@ -76,19 +74,19 @@ func TestFiles(t *testing.T) {
 		generalDeniedTopic := "test/general_denied"
 
 		Convey("All users but not present ones should have a record", func() {
-			_, ok := files.users[user1]
+			_, ok := files.Users()[user1]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user2]
+			_, ok = files.Users()[user2]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user3]
+			_, ok = files.Users()[user3]
 			So(ok, ShouldBeTrue)
 
-			_, ok = files.users[user4]
+			_, ok = files.Users()[user4]
 			So(ok, ShouldBeFalse)
 
-			_, ok = files.users[elton]
+			_, ok = files.Users()[elton]
 			So(ok, ShouldBeTrue)
 		})
 
@@ -182,11 +180,11 @@ func TestFiles(t *testing.T) {
 		deniedTopic := "test/denied"
 
 		Convey("Topics for non existing users should be ignored when there's a passwords file", func() {
-			for record := range files.aclRecords {
+			for record := range files.snap.Load().aclRecords {
 				So(record, ShouldNotEqual, "test/not_present")
 			}
 
-			for _, user := range files.users {
+			for _, user := range files.Users() {
 				for record := range user.aclRecords {
 					So(record, ShouldNotEqual, "test/not_present")
 				}
@@ -304,7 +302,7 @@ func TestFiles(t *testing.T) {
 		files.Halt()
 	})
 
-	Convey("On SIGHUP files should be reloaded", t, func() {
+	Convey("On Reload files should be reloaded", t, func() {
 		pwFile, err := os.Create("test-files/test-passwords")
 		So(err, ShouldBeNil)
 		aclFile, err := os.Create("test-files/test-acls")
@@ -342,14 +340,14 @@ func TestFiles(t *testing.T) {
 		files, err := NewChecker(backendsOpt, pwPath, aclPath, log.DebugLevel, hasher)
 		So(err, ShouldBeNil)
 
-		user, ok := files.users[user1]
+		user, ok := files.Users()[user1]
 		So(ok, ShouldBeTrue)
 
 		record := user.aclRecords[0]
 		So(record.acc, ShouldEqual, MOSQ_ACL_READ)
 		So(record.topic, ShouldEqual, "test/#")
 
-		_, ok = files.users[user2]
+		_, ok = files.Users()[user2]
 		So(ok, ShouldBeFalse)
 
 		// Now add second user and reload.
@@ -358,15 +356,212 @@ func TestFiles(t *testing.T) {
 		aclFile.WriteString("\nuser test2")
 		aclFile.WriteString("\ntopic write test/#")
 
-		files.signals <- syscall.SIGHUP
+		pwFile.Sync()
+		aclFile.Sync()
 
-		time.Sleep(200 * time.Millisecond)
+		So(files.Reload(), ShouldBeNil)
 
-		user, ok = files.users[user2]
+		user, ok = files.Users()[user2]
 		So(ok, ShouldBeTrue)
 
 		record = user.aclRecords[0]
 		So(record.acc, ShouldEqual, MOSQ_ACL_WRITE)
 		So(record.topic, ShouldEqual, "test/#")
+	})
+}
+
+func TestFilesDollarTopicsAndDenyPatterns(t *testing.T) {
+	Convey("Given rules that start with a wildcard and a deny pattern", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("pattern read clients/%c/#\npattern read users/%u/%c\npattern deny private/%c/#\n\nuser test1\ntopic readwrite #\n\nuser test2\ntopic readwrite +/x\ntopic read $SYS/#\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A rule that starts with # or + should not grant a topic that starts with $", func() {
+			for _, acc := range []int32{MOSQ_ACL_READ, MOSQ_ACL_WRITE, MOSQ_ACL_SUBSCRIBE} {
+				for _, topic := range []string{"$SYS/broker/uptime", "$private/x", "$SYS/#"} {
+					granted, err := files.CheckAcl("test1", topic, "id", acc)
+					So(err, ShouldBeNil)
+					So(granted, ShouldBeFalse)
+				}
+			}
+			granted, err := files.CheckAcl("test2", "$private/x", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("test1", "a/b", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A rule that names the $ prefix should grant it", func() {
+			granted, err := files.CheckAcl("test2", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A shared subscription filter should keep the old matching", func() {
+			granted, err := files.CheckAcl("test1", "$share/g/a/b", "id", MOSQ_ACL_SUBSCRIBE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A pattern rule should apply only when the placeholder values are valid", func() {
+			granted, err := files.CheckAcl("other", "clients/id/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			granted, err = files.CheckAcl("other", "users/other/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			for _, id := range []string{"+", "a/+", "", "a\x00"} {
+				granted, err = files.CheckAcl("other", "clients/x/y", id, MOSQ_ACL_READ)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeFalse)
+			}
+
+			granted, err = files.CheckAcl("+", "users/x/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("a/b", "users/a/b/id", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A deny pattern should deny when the client ID has a wildcard", func() {
+			granted, err := files.CheckAcl("test1", "a/b", "+", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("test1", "private/id/x", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A deny pattern should be matched with the literal client ID when it is empty or has / or NUL", func() {
+			for _, id := range []string{"", "a/b", "a\x00"} {
+				granted, err := files.CheckAcl("test1", "a/b", id, MOSQ_ACL_WRITE)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeTrue)
+			}
+		})
+	})
+
+	Convey("Given a deny pattern with the user name", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic read public/#\npattern deny users/%u/admin\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+
+		Convey("An anonymous client should not be denied everything", func() {
+			granted, err := files.CheckAcl("", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("A user name with a wildcard should be denied", func() {
+			granted, err := files.CheckAcl("+", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A user name with / should not be denied", func() {
+			granted, err := files.CheckAcl("a/b", "public/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given a deny pattern with the client ID and a general grant", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic readwrite #\npattern deny private/%c/#\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A client ID with / should be denied the literal topic, for read and write", func() {
+			for _, acc := range []int32{MOSQ_ACL_READ, MOSQ_ACL_WRITE} {
+				granted, err := files.CheckAcl("alice", "private/a/b/x", "a/b", acc)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeFalse)
+			}
+		})
+
+		Convey("Other topics should still be granted", func() {
+			for _, id := range []string{"a/b", "", "a\x00b", "alice"} {
+				granted, err := files.CheckAcl("alice", "foo/bar", id, MOSQ_ACL_WRITE)
+				So(err, ShouldBeNil)
+				So(granted, ShouldBeTrue)
+			}
+			granted, err := files.CheckAcl("alice", "private/other/x", "a/b", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+	})
+
+	Convey("Given a deny pattern with the user name and a general grant", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic readwrite #\npattern deny users/%u/admin\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("An anonymous client should get normal topics, and not the literal denied one", func() {
+			granted, err := files.CheckAcl("", "foo/bar", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+
+			granted, err = files.CheckAcl("", "users//admin", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+	})
+}
+
+func TestFilesDenyRulesMatchDollarTopics(t *testing.T) {
+	Convey("Given deny rules that start with a wildcard", t, func() {
+		aclPath := filepath.Join(t.TempDir(), "acls")
+		So(os.WriteFile(aclPath, []byte("topic read $SYS/#\ntopic readwrite $app/#\npattern deny +/secret\n\nuser guest\ntopic deny #\n\nuser other\ntopic readwrite #\n"), 0600), ShouldBeNil)
+
+		files, err := NewChecker("files", "", aclPath, log.DebugLevel, hashing.NewHasher(map[string]string{}, "files"))
+		So(err, ShouldBeNil)
+		defer files.Halt()
+
+		Convey("A user deny rule should deny $ topics like in 3.5.1", func() {
+			granted, err := files.CheckAcl("guest", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("guest", "$SYS/#", "id", MOSQ_ACL_SUBSCRIBE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
+
+		Convey("A pattern deny rule should deny $ topics like in 3.5.1", func() {
+			granted, err := files.CheckAcl("other", "$app/secret", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+
+			granted, err = files.CheckAcl("other", "$app/public", "id", MOSQ_ACL_WRITE)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue)
+		})
+
+		Convey("An allow rule that starts with # should still not grant $ topics", func() {
+			granted, err := files.CheckAcl("other", "$SYS/broker/uptime", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeTrue) // granted by the named $SYS/# rule
+
+			granted, err = files.CheckAcl("other", "$private/x", "id", MOSQ_ACL_READ)
+			So(err, ShouldBeNil)
+			So(granted, ShouldBeFalse)
+		})
 	})
 }

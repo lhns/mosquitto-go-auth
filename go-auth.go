@@ -23,6 +23,8 @@ import (
 type BackendsChecker interface {
 	AuthUnpwdCheck(ctx context.Context, username, password, clientid string) (bool, error)
 	AuthAclCheck(ctx context.Context, clientid, username, topic string, acc int) (bool, error)
+	CacheDeadline(username string, acl bool) (deadline time.Time, capped bool)
+	LogUsername(username string) string
 	Halt()
 }
 
@@ -51,8 +53,31 @@ const (
 var authOpts map[string]string //Options passed by mosquitto.
 var authPlugin AuthPlugin      //General struct with options and conf.
 
+// pluginLoaded is true from the start of an init until cleanup.
+var pluginLoaded bool
+
+// AuthPluginInit initializes the plugin. It returns false when the plugin is already loaded.
+//
 //export AuthPluginInit
-func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *C.char) {
+func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *C.char) bool {
+	opts := make(map[string]string)
+	for i := 0; i < authOptsNum; i++ {
+		opts[C.GoString(keys[i])] = C.GoString(values[i])
+	}
+
+	return initPlugin(opts, C.GoString(version))
+}
+
+// initPlugin sets the global plugin state from opts.
+// mosquitto can load the plugin more than once, but the state is global.
+// So a second init is refused and the state of the first stays.
+func initPlugin(opts map[string]string, version string) bool {
+	if pluginLoaded {
+		log.Error("plugin init failed: the plugin is already loaded; load it once")
+		return false
+	}
+	pluginLoaded = true
+
 	log.SetFormatter(&log.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -71,10 +96,7 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		log.Info("telemetry enabled (OTLP)")
 	}
 
-	authOpts = make(map[string]string)
-	for i := 0; i < authOptsNum; i++ {
-		authOpts[C.GoString(keys[i])] = C.GoString(values[i])
-	}
+	authOpts = opts
 
 	if retryCount, ok := authOpts["retry_count"]; ok {
 		retry, err := strconv.Atoi(retryCount)
@@ -138,7 +160,7 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 		}
 	}
 
-	authPlugin.backends, err = bes.Initialize(authOpts, authPlugin.logLevel, C.GoString(version))
+	authPlugin.backends, err = bes.Initialize(authOpts, authPlugin.logLevel, version)
 	if err != nil {
 		log.Fatalf("error initializing backends: %s", err)
 	}
@@ -154,6 +176,8 @@ func AuthPluginInit(keys []*C.char, values []*C.char, authOptsNum int, version *
 	if authPlugin.useCache {
 		setCache(authOpts)
 	}
+
+	return true
 }
 
 func setCache(authOpts map[string]string) {
@@ -235,6 +259,13 @@ func setCache(authOpts map[string]string) {
 			password = cachePassword
 		}
 
+		// The secret is never logged.
+		keySecret := authOpts["cache_key_secret"]
+		if keySecret == "" {
+			log.Warn("the Redis cache keys are not keyed: set cache_key_secret (the same value on all brokers that share this cache) " +
+				"so that a reader of the Redis keys cannot test password guesses")
+		}
+
 		if cluster {
 
 			addressesOpt := authOpts["redis_cluster_addresses"]
@@ -252,6 +283,7 @@ func setCache(authOpts map[string]string) {
 
 			authPlugin.cache = cache.NewRedisClusterStore(
 				password,
+				keySecret,
 				addresses,
 				time.Duration(authCacheSeconds)*time.Second,
 				time.Duration(aclCacheSeconds)*time.Second,
@@ -282,6 +314,7 @@ func setCache(authOpts map[string]string) {
 				host,
 				port,
 				password,
+				keySecret,
 				db,
 				time.Duration(authCacheSeconds)*time.Second,
 				time.Duration(aclCacheSeconds)*time.Second,
@@ -302,6 +335,8 @@ func setCache(authOpts map[string]string) {
 	}
 
 	if !authPlugin.cache.Connect(authPlugin.ctx, reset) {
+		// Release the client (and with it the legacy key sweep) before dropping the cache.
+		authPlugin.cache.Close()
 		authPlugin.cache = nil
 		authPlugin.useCache = false
 		log.Infoln("couldn't start cache, defaulting to no cache")
@@ -333,18 +368,31 @@ func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
 	return AuthRejected
 }
 
+// usernameLoggable tells if a username may appear in spans: with a JWT backend it can be a token.
+func usernameLoggable(username string) bool {
+	return authPlugin.backends.LogUsername(username) == username
+}
+
+// clientIDLoggable tells if the client ID may appear in spans. With use_clientid_as_username
+// it carries the username, so it is hidden as the username is.
+func clientIDLoggable(clientid string) bool {
+	return !authPlugin.useClientidAsUsername || usernameLoggable(clientid)
+}
+
 func authUnpwdCheck(username, password, clientid string) (authenticated bool, err error) {
 	var cached bool
 	var granted bool
 
 	username = setUsername(username, clientid)
 
-	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check",
-		trace.WithAttributes(
-			attribute.String("auth.username", username),
-			attribute.String("auth.client_id", clientid),
-		),
-	)
+	var attrs []attribute.KeyValue
+	if clientIDLoggable(clientid) {
+		attrs = append(attrs, attribute.String("auth.client_id", clientid))
+	}
+	if usernameLoggable(username) {
+		attrs = append(attrs, attribute.String("auth.username", username))
+	}
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.unpwd_check", trace.WithAttributes(attrs...))
 	start := time.Now()
 	defer func() {
 		result := authResult(authenticated, err)
@@ -364,14 +412,21 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 		return false, nil
 	}
 
-	if authPlugin.useCache {
-		log.WithContext(ctx).Debugf("checking auth cache for %s", username)
-		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password)
+	// An expired JWT result is neither read from nor stored in the cache.
+	cacheable := authPlugin.useCache && !jwtExpired(username, false)
+
+	if cacheable {
+		log.WithContext(ctx).Debugf("checking auth cache for %s", authPlugin.backends.LogUsername(username))
+		cached, granted = authPlugin.cache.CheckAuthRecord(ctx, username, password, clientid)
 		if cached {
-			log.WithContext(ctx).Debugf("found in cache: %s", username)
-			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
-			return granted, nil
+			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
+			// The exp may have passed while the cache was read.
+			if !jwtExpired(username, false) {
+				span.AddEvent("cache.hit")
+				telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
+				return granted, nil
+			}
+			cacheable = false
 		}
 		span.AddEvent("cache.miss")
 		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "unpwd")))
@@ -379,13 +434,13 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
-	if authPlugin.useCache && err == nil {
+	if cacheable && err == nil {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
 		}
-		log.WithContext(ctx).Debugf("setting auth cache for %s", username)
-		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, authGranted); setAuthErr != nil {
+		log.WithContext(ctx).Debugf("setting auth cache for %s", authPlugin.backends.LogUsername(username))
+		if setAuthErr := authPlugin.cache.SetAuthRecord(ctx, username, password, clientid, authGranted); setAuthErr != nil {
 			log.WithContext(ctx).Errorf("set auth cache: %s", setAuthErr)
 			return false, setAuthErr
 		}
@@ -423,14 +478,17 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	username = setUsername(username, clientid)
 
-	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check",
-		trace.WithAttributes(
-			attribute.String("auth.username", username),
-			attribute.String("auth.client_id", clientid),
-			attribute.String("auth.topic", topic),
-			attribute.Int("auth.access", acc),
-		),
-	)
+	attrs := []attribute.KeyValue{
+		attribute.String("auth.topic", topic),
+		attribute.Int("auth.access", acc),
+	}
+	if clientIDLoggable(clientid) {
+		attrs = append(attrs, attribute.String("auth.client_id", clientid))
+	}
+	if usernameLoggable(username) {
+		attrs = append(attrs, attribute.String("auth.username", username))
+	}
+	ctx, span := telemetry.Tracer().Start(authPlugin.ctx, "auth.acl_check", trace.WithAttributes(attrs...))
 	start := time.Now()
 	defer func() {
 		result := authResult(aclCheck, err)
@@ -441,14 +499,21 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 		)
 	}()
 
-	if authPlugin.useCache {
-		log.WithContext(ctx).Debugf("checking acl cache for %s", username)
+	// An expired JWT result is neither read from nor stored in the cache.
+	cacheable := authPlugin.useCache && !jwtExpired(username, true)
+
+	if cacheable {
+		log.WithContext(ctx).Debugf("checking acl cache for %s", authPlugin.backends.LogUsername(username))
 		cached, granted = authPlugin.cache.CheckACLRecord(ctx, username, topic, clientid, acc)
 		if cached {
-			log.WithContext(ctx).Debugf("found in cache: %s", username)
-			span.AddEvent("cache.hit")
-			telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
-			return granted, nil
+			log.WithContext(ctx).Debugf("found in cache: %s", authPlugin.backends.LogUsername(username))
+			// The exp may have passed while the cache was read.
+			if !jwtExpired(username, true) {
+				span.AddEvent("cache.hit")
+				telemetry.CacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
+				return granted, nil
+			}
+			cacheable = false
 		}
 		span.AddEvent("cache.miss")
 		telemetry.CacheMisses.Add(ctx, 1, metric.WithAttributes(attribute.String("auth.kind", "acl")))
@@ -456,20 +521,28 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
-	if authPlugin.useCache && err == nil {
+	if cacheable && err == nil {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
 		}
-		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, username)
+		log.WithContext(ctx).Debugf("setting acl cache (granted = %s) for %s", authGranted, authPlugin.backends.LogUsername(username))
 		if setACLErr := authPlugin.cache.SetACLRecord(ctx, username, topic, clientid, acc, authGranted); setACLErr != nil {
 			log.WithContext(ctx).Errorf("set acl cache: %s", setACLErr)
 			return false, setACLErr
 		}
 	}
 
-	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, username)
+	log.WithContext(ctx).Debugf("Acl is %t for user %s", aclCheck, authPlugin.backends.LogUsername(username))
 	return aclCheck, err
+}
+
+// jwtExpired tells if username is a JWT whose exp has passed, so a cache entry for it must not
+// be used or stored.
+func jwtExpired(username string, acl bool) bool {
+	deadline, capped := authPlugin.backends.CacheDeadline(username, acl)
+
+	return capped && !time.Now().Before(deadline)
 }
 
 // authResult maps (ok, err) into a result label used on spans and metrics.
@@ -486,6 +559,17 @@ func authResult(ok bool, err error) string {
 //export AuthPskKeyGet
 func AuthPskKeyGet() bool {
 	return true
+}
+
+// AuthPluginReload runs when the broker reloads its configuration (SIGHUP). It reloads the data of
+// the backends that support it. It does not halt anything.
+//
+//export AuthPluginReload
+func AuthPluginReload() {
+	if b, ok := authPlugin.backends.(interface{ Reload() }); ok {
+		log.Debugln("broker reload: reloading backends")
+		b.Reload()
+	}
 }
 
 //export AuthPluginCleanup
@@ -505,6 +589,8 @@ func AuthPluginCleanup() {
 			log.Warnf("telemetry shutdown: %s", err)
 		}
 	}
+
+	pluginLoaded = false
 }
 
 func setUsername(username, clientid string) string {

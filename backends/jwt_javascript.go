@@ -104,6 +104,8 @@ func (o *jsJWTChecker) GetUser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.userScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 
@@ -122,10 +124,14 @@ func (o *jsJWTChecker) addDataFromJWT(params map[string]interface{}, token strin
 		params["claims"] = claims
 	}
 
+	params["username"] = ""
 	if username, found := claims[o.options.userFieldKey]; found {
-		params["username"] = username.(string)
-	} else {
-		params["username"] = ""
+		usernameString, ok := username.(string)
+		if !ok {
+			log.Debugf("jwt error: username expected to be string, got %T", username)
+			return nil, errors.New("got strange username")
+		}
+		params["username"] = usernameString
 	}
 
 	return params, nil
@@ -145,6 +151,8 @@ func (o *jsJWTChecker) GetSuperuser(token string) (bool, error) {
 
 	granted, err := o.runner.RunScript(o.superuserScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 
@@ -168,6 +176,8 @@ func (o *jsJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bool,
 
 	granted, err := o.runner.RunScript(o.aclScript, params)
 	if err != nil {
+		// The username is the token, and a script error can echo it.
+		err = hideToken(true, err, token)
 		log.Errorf("js error: %s", err)
 	}
 

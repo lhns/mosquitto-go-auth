@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"strings"
 	"time"
 
 	. "github.com/iegomez/mosquitto-go-auth/backends/constants"
@@ -100,7 +99,8 @@ func NewMongo(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 		m.AclsCollection = aclsCollection
 	}
 
-	if authOpts["mongo_use_tls"] == "true" {
+	// mongo_use_tls is the old name of mongo_with_tls.
+	if authOpts["mongo_with_tls"] == "true" || authOpts["mongo_use_tls"] == "true" {
 		m.withTLS = true
 	}
 
@@ -117,7 +117,12 @@ func NewMongo(authOpts map[string]string, logLevel log.Level, hasher hashing.Has
 	}
 
 	if m.withTLS {
-		opts.TLSConfig = &tls.Config{}
+		if m.insecureSkipVerify {
+			log.Warn("mongo_insecure_skip_verify is true: the Mongo server certificate is not verified")
+		}
+		opts.TLSConfig = &tls.Config{InsecureSkipVerify: m.insecureSkipVerify}
+	} else if m.insecureSkipVerify {
+		log.Warn("mongo_insecure_skip_verify is ignored: TLS is off, set mongo_with_tls to use it")
 	}
 
 	opts.ApplyURI(addr)
@@ -241,9 +246,8 @@ func (o Mongo) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 		var acl MongoAcl
 		err = cur.Decode(&acl)
 		if err == nil {
-			aclTopic := strings.Replace(acl.Topic, "%c", clientid, -1)
-			aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-			if topics.Match(aclTopic, topic) {
+			aclTopic, outcome := topics.Substitute(acl.Topic, username, clientid)
+			if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 				return true, nil
 			}
 		} else {

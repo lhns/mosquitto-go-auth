@@ -322,6 +322,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	resp, err = o.client.Do(req)
 
 	if err != nil {
+		err = hideToken(true, err, token)
 		log.Errorf("error: %v", err)
 		return false, err
 	}
@@ -331,6 +332,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
+		err = hideToken(true, err, token)
 		log.Errorf("read error: %s", err)
 		return false, err
 	}
@@ -347,7 +349,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: %s", string(body))
+			log.Infof("api error: status %d", resp.StatusCode)
 			return false, nil
 		}
 
@@ -363,13 +365,13 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		}
 
 		if !response.Ok {
-			log.Infof("api error: %s", response.Error)
+			log.Infof("api error: status %d", resp.StatusCode)
 			return false, nil
 		}
 
 	}
 
-	log.Debugf("jwt request approved for %s", token)
+	log.Debug("jwt request approved")
 	return true, nil
 }
 
@@ -386,7 +388,7 @@ func (o *remoteJWTChecker) getHost(token string) (string, error) {
 
 	iss, err := getIssForToken(o.options, token, o.options.skipUserExpiration)
 	if err != nil {
-		errorString := fmt.Sprintf("cannot obtain host for the authorization request from token %s: %s", token, err)
+		errorString := fmt.Sprintf("cannot obtain host for the authorization request: %s", hideToken(true, err, token))
 		return "", errors.New(errorString)
 	}
 

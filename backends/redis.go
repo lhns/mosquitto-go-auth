@@ -27,6 +27,8 @@ type RedisClient interface {
 	SAdd(ctx context.Context, key string, members ...interface{}) *goredis.IntCmd
 	Expire(ctx context.Context, key string, expiration time.Duration) *goredis.BoolCmd
 	ReloadState(ctx context.Context)
+	// ForEachMaster runs fn on every master of a cluster, or once on a single node.
+	ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *goredis.Client) error) error
 }
 
 type SingleRedisClient struct {
@@ -35,6 +37,10 @@ type SingleRedisClient struct {
 
 func (c *SingleRedisClient) ReloadState(ctx context.Context) {
 	// NO-OP for single node clients
+}
+
+func (c *SingleRedisClient) ForEachMaster(ctx context.Context, fn func(ctx context.Context, client *goredis.Client) error) error {
+	return fn(ctx, c.Client)
 }
 
 type Redis struct {
@@ -406,9 +412,8 @@ func (o Redis) checkAcl(username, topic, clientid string, acc int32) (bool, erro
 	}
 
 	for _, acl := range commonAcls {
-		aclTopic := strings.Replace(acl, "%c", clientid, -1)
-		aclTopic = strings.Replace(aclTopic, "%u", username, -1)
-		if topics.Match(aclTopic, topic) {
+		aclTopic, outcome := topics.Substitute(acl, username, clientid)
+		if outcome == topics.Replaced && topics.Match(aclTopic, topic) {
 			return true, nil
 		}
 	}

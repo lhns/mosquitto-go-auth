@@ -39,6 +39,21 @@ const (
 	defaultPBKDF2Algorithm  = SHA512
 )
 
+// Limits for hashes. Compare refuses a stored hash outside these limits before
+// it does any key derivation, and Hash refuses the same parameters.
+const (
+	maxEncodedHashLen   = 4096    // bytes of the whole stored hash string
+	maxKeyLen           = 512     // bytes of the derived key
+	maxSaltLen          = 512     // bytes of the decoded salt
+	maxPBKDF2Iterations = 5000000 // about 8 times the OWASP value for PBKDF2-HMAC-SHA256
+
+	// KiB: 4 GiB, or 1 GiB on 32-bit builds where 4 GiB cannot be allocated.
+	maxArgon2Memory      = 1 << (20 + 2*(strconv.IntSize/32-1))
+	maxBcryptCost        = 16
+	maxArgon2Iterations  = 32
+	maxArgon2Parallelism = 64
+)
+
 var saltEncodings = map[string]struct{}{
 	UTF8:   {},
 	Base64: {},
@@ -145,6 +160,4 @@ func NewHasher(authOpts map[string]string, backend string) HashComparer {
 
 	saltEncoding := opts["hasher_salt_encoding"]
 	return NewPBKDF2Hasher(saltSize, iterations, algorithm, saltEncoding, keyLen)
-
-	return nil
 }
