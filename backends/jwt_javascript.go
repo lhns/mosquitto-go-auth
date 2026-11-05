@@ -122,10 +122,14 @@ func (o *jsJWTChecker) addDataFromJWT(params map[string]interface{}, token strin
 		params["claims"] = claims
 	}
 
+	params["username"] = ""
 	if username, found := claims[o.options.userFieldKey]; found {
-		params["username"] = username.(string)
-	} else {
-		params["username"] = ""
+		usernameString, ok := username.(string)
+		if !ok {
+			log.Debugf("jwt error: username expected to be string, got %T", username)
+			return nil, errors.New("got strange username")
+		}
+		params["username"] = usernameString
 	}
 
 	return params, nil

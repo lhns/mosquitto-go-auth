@@ -1,7 +1,7 @@
 package backends
 
 import (
-	"crypto"
+	"encoding/pem"
 	"fmt"
 	"os"
 
@@ -22,6 +22,8 @@ type tokenOptions struct {
 	skipUserExpiration bool
 	skipACLExpiration  bool
 	secret             []byte
+	key                interface{} // verification key parsed from secret; nil when no secret is set
+	methods            []string    // signing algorithms allowed for key
 	userFieldKey       string
 }
 
@@ -74,13 +76,23 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		options.secret = []byte(secret)
 	}
 
+	if err := options.parseKey(); err != nil {
+		return nil, err
+	}
+
+	// Every mode but remote and js verifies tokens; remote and js only when they parse them.
+	mode := authOpts["jwt_mode"]
+	if options.key == nil && (mode == localMode || mode == filesMode || options.parseToken) {
+		return nil, errors.New("JWT backend error: missing jwt secret, set jwt_secret or jwt_secret_file")
+	}
+
 	if userField, ok := authOpts["jwt_userfield"]; ok && userField == "Username" {
 		options.userFieldKey = claimsUsernameKey
 	} else {
 		options.userFieldKey = claimsSubjectKey
 	}
 
-	switch authOpts["jwt_mode"] {
+	switch mode {
 	case jsMode:
 		jwt.mode = jsMode
 		checker, err = NewJsJWTChecker(authOpts, options)
@@ -101,7 +113,7 @@ func NewJWT(authOpts map[string]string, logLevel log.Level, hasher hashing.HashC
 		return nil, err
 	}
 
-	jwt.name = fmt.Sprintf("JWT %s", authOpts["jwt_mode"])
+	jwt.name = fmt.Sprintf("JWT %s", mode)
 
 	jwt.checker = checker
 
@@ -133,44 +145,54 @@ func (o *JWT) Halt() {
 	o.checker.Halt()
 }
 
-func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.MapClaims, error) {
-
-	jwtToken, err := jwtGo.ParseWithClaims(tokenStr, &jwtGo.MapClaims{}, func(token *jwtGo.Token) (interface{}, error) {
-		var ret crypto.PublicKey
-		var err error
-
-		switch token.Method.Alg() {
-		case jwtGo.SigningMethodHS256.Alg(), jwtGo.SigningMethodHS384.Alg(), jwtGo.SigningMethodHS512.Alg():
-			ret = secret
-		case jwtGo.SigningMethodRS256.Alg(), jwtGo.SigningMethodRS384.Alg(), jwtGo.SigningMethodRS512.Alg():
-			ret, err = jwtGo.ParseRSAPublicKeyFromPEM(secret)
-		case jwtGo.SigningMethodES256.Alg(), jwtGo.SigningMethodES384.Alg(), jwtGo.SigningMethodES512.Alg():
-			ret, err = jwtGo.ParseECPublicKeyFromPEM(secret)
-		default:
-			log.Debugf("unexpected signing method: %v", token.Header["alg"])
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("error parsing public key: %w", err)
-		}
-		return ret, nil
-	})
-
-	expirationError := false
-	if err != nil {
-		if !skipExpiration {
-			log.Debugf("jwt parse error: %s", err)
-			return nil, err
-		}
-
-		if errors.Is(err, jwtGo.ErrTokenExpired) {
-			expirationError = true
-		}
+// parseKey derives the verification key and the allowed signing algorithms from the secret.
+// A secret that decodes as a PEM block must be an RSA or EC public key; anything else is an HMAC secret.
+func (o *tokenOptions) parseKey() error {
+	o.key, o.methods = nil, nil
+	if len(o.secret) == 0 {
+		return nil
 	}
 
-	if !jwtToken.Valid && !expirationError {
-		return nil, errors.New("jwt invalid token")
+	if block, _ := pem.Decode(o.secret); block == nil {
+		o.key = o.secret
+		o.methods = []string{"HS256", "HS384", "HS512"}
+		return nil
+	}
+
+	if key, err := jwtGo.ParseRSAPublicKeyFromPEM(o.secret); err == nil {
+		o.key = key
+		o.methods = []string{"RS256", "RS384", "RS512"}
+		return nil
+	}
+
+	if key, err := jwtGo.ParseECPublicKeyFromPEM(o.secret); err == nil {
+		o.key = key
+		o.methods = []string{"ES256", "ES384", "ES512"}
+		return nil
+	}
+
+	return errors.New("JWT backend error: jwt secret is a PEM block but not a supported RSA or EC public key")
+}
+
+// getJWTClaims verifies the token against the configured key and returns its claims.
+// When skipExpiration is set, only the expiration check is skipped: the signature,
+// algorithm and the library's default claim checks other than exp (such as nbf) still apply.
+func getJWTClaims(options tokenOptions, tokenStr string, skipExpiration bool) (*jwtGo.MapClaims, error) {
+	if options.key == nil {
+		return nil, errors.New("jwt: no verification key configured")
+	}
+
+	parserOpts := []jwtGo.ParserOption{jwtGo.WithValidMethods(options.methods)}
+	if skipExpiration {
+		parserOpts = append(parserOpts, jwtGo.WithoutClaimsValidation())
+	}
+
+	jwtToken, err := jwtGo.NewParser(parserOpts...).ParseWithClaims(tokenStr, &jwtGo.MapClaims{}, func(*jwtGo.Token) (interface{}, error) {
+		return options.key, nil
+	})
+	if err != nil {
+		log.Debugf("jwt parse error: %s", err)
+		return nil, err
 	}
 
 	claims, ok := jwtToken.Claims.(*jwtGo.MapClaims)
@@ -179,11 +201,25 @@ func getJWTClaims(secret []byte, tokenStr string, skipExpiration bool) (*jwtGo.M
 		return nil, errors.New("got strange claims")
 	}
 
+	if skipExpiration {
+		// Run the library's claim checks on a copy without "exp".
+		checked := make(jwtGo.MapClaims, len(*claims))
+		for k, v := range *claims {
+			if k != "exp" {
+				checked[k] = v
+			}
+		}
+		if err := jwtGo.NewValidator().Validate(checked); err != nil {
+			log.Debugf("jwt claims error: %s", err)
+			return nil, err
+		}
+	}
+
 	return claims, nil
 }
 
 func getUsernameForToken(options tokenOptions, tokenStr string, skipExpiration bool) (string, error) {
-	claims, err := getJWTClaims(options.secret, tokenStr, skipExpiration)
+	claims, err := getJWTClaims(options, tokenStr, skipExpiration)
 
 	if err != nil {
 		return "", err
@@ -204,7 +240,7 @@ func getUsernameForToken(options tokenOptions, tokenStr string, skipExpiration b
 }
 
 func getClaimsForToken(options tokenOptions, tokenStr string, skipExpiration bool) (map[string]interface{}, error) {
-	claims, err := getJWTClaims(options.secret, tokenStr, skipExpiration)
+	claims, err := getJWTClaims(options, tokenStr, skipExpiration)
 	if err != nil {
 		return make(map[string]interface{}), err
 	}
@@ -213,7 +249,7 @@ func getClaimsForToken(options tokenOptions, tokenStr string, skipExpiration boo
 }
 
 func getIssForToken(options tokenOptions, tokenStr string, skipExpiration bool) (string, error) {
-	claims, err := getJWTClaims(options.secret, tokenStr, skipExpiration)
+	claims, err := getJWTClaims(options, tokenStr, skipExpiration)
 
 	if err != nil {
 		return "", err

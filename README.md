@@ -951,12 +951,16 @@ The `jwt` backend is for auth with a JWT remote API, a local DB, a JavaScript VM
 | --------------------------------- | --------- | :-------: | ---------------------------------------------------------------------------------------------|
 | auth_opt_jwt_mode                 |           |     Y     | local, remote, js, files                                                                     |
 | auth_opt_jwt_parse_token          |   false   |     N     | Parse token in remote/js modes                                                               |
-| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local mode or when parse_token is true (unless secret_file is used) |
+| auth_opt_jwt_secret               |           |    Y/N    | JWT secret, required for local/files mode or when parse_token is true (unless secret_file is used) |
 | auth_opt_jwt_secret_file          |           |    Y/N    | Path to file containing JWT secret (alternative to jwt_secret)                               |
 | auth_opt_jwt_userfield            |           |     N     | When `Username`, expect `username` as part of claims                                         |
 | auth_opt_jwt_skip_user_expiration |   false   |     N     | Skip token expiration in user/superuser checks                                               |
 | auth_opt_jwt_skip_acl_expiration  |   false   |     N     | Skip token expiration in ACL checks                                                          |
 | auth_opt_jwt_user_agent           | mosquitto |     N     | User agent for requests                                                                      |
+
+The type of the secret sets the accepted algorithms. A PEM RSA public key accepts RS256, RS384 and RS512. A PEM EC public key accepts ES256, ES384 and ES512. Any other value is an HMAC secret and accepts HS256, HS384 and HS512. A secret that contains a PEM block but is not a supported public key stops the plugin at startup. A missing or empty `jwt_secret` (or an empty `jwt_secret_file`) stops the plugin at startup in local and files mode, and in remote and js mode when `jwt_parse_token` is true.
+
+`jwt_skip_user_expiration` and `jwt_skip_acl_expiration` skip only the expiration check. The signature and the other claim checks still apply. The backend rejects a malformed token.
 
 #### Remote mode
 
@@ -990,7 +994,7 @@ For all URIs, the backend will send a request with the `Authorization` header se
 
 When `jwt_parse_token` is set, the backend will parse the token using `jwt_secret` and extract the username from either the claim's `Subject` (`sub` field), or from the `username` field when `jwt_userfield` is set to `Username`. This `username` will be sent along other params in all requests, and the `Authorization` header will be set to `Bearer token` as usual.
 
-Notice that failing to provide `jwt_secret` or passing a wrong one will result in an error when parsing the token and the request will not be made.
+Notice that `jwt_secret` (or `jwt_secret_file`) is required when `jwt_parse_token` is set: the plugin refuses to start without it. Passing a wrong one will result in an error when parsing the token and the request will not be made.
 Set these options only if you intend to keep the plugin synced with your JWT service and wish for the former to pre-parse the token.
 
 ##### Response mode
