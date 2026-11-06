@@ -5,6 +5,7 @@ import "C"
 import (
 	"context"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -210,6 +211,11 @@ func setCache(authOpts map[string]string) {
 		log.Warningf("authJitterSeconds is larger than authCacheSeconds, defaulting to %d", authJitterSeconds)
 	}
 
+	// A jitter below 0 would make the expiration draw panic.
+	if authJitterSeconds < 0 {
+		authJitterSeconds = 0
+	}
+
 	if aclCacheSec, ok := authOpts["acl_cache_seconds"]; ok {
 		aclSec, err := strconv.ParseInt(aclCacheSec, 10, 64)
 		if err == nil {
@@ -233,6 +239,21 @@ func setCache(authOpts map[string]string) {
 		log.Warningf("aclJitterSeconds is larger than aclCacheSeconds, defaulting to %d", aclJitterSeconds)
 	}
 
+	// A jitter below 0 would make the expiration draw panic.
+	if aclJitterSeconds < 0 {
+		aclJitterSeconds = 0
+	}
+
+	// A cache time of 0 (or less) means do not cache: the stores neither store nor read that result.
+	switch {
+	case authCacheSeconds <= 0 && aclCacheSeconds <= 0:
+		log.Info("cache is off for auth and ACL results: auth_cache_seconds and acl_cache_seconds are 0 or less")
+	case authCacheSeconds <= 0:
+		log.Info("cache is off for auth results: auth_cache_seconds is 0 or less")
+	case aclCacheSeconds <= 0:
+		log.Info("cache is off for ACL results: acl_cache_seconds is 0 or less")
+	}
+
 	reset := false
 	if cacheReset, ok := authOpts["cache_reset"]; ok && cacheReset == "true" {
 		reset = true
@@ -251,7 +272,8 @@ func setCache(authOpts map[string]string) {
 		password := ""
 		cluster := false
 
-		if authOpts["cache_mode"] == "true" {
+		// The README documents "cluster"; "true" is what the code checked before, so it keeps working.
+		if mode := authOpts["cache_mode"]; mode == "cluster" || mode == "true" {
 			cluster = true
 		}
 
@@ -268,7 +290,12 @@ func setCache(authOpts map[string]string) {
 
 		if cluster {
 
-			addressesOpt := authOpts["redis_cluster_addresses"]
+			// The README documents cache_addresses; redis_cluster_addresses (the Redis backend's option)
+			// is what the code read before, so it keeps working.
+			addressesOpt := authOpts["cache_addresses"]
+			if addressesOpt == "" {
+				addressesOpt = authOpts["redis_cluster_addresses"]
+			}
 			if addressesOpt == "" {
 				log.Errorln("cache Redis cluster addresses missing, defaulting to no cache.")
 				authPlugin.useCache = false
@@ -345,7 +372,9 @@ func setCache(authOpts map[string]string) {
 }
 
 //export AuthUnpwdCheck
-func AuthUnpwdCheck(username, password, clientid *C.char) uint8 {
+func AuthUnpwdCheck(username, password, clientid *C.char) (result uint8) {
+	defer recoverCheck("auth", &result)
+
 	var ok bool
 	var err error
 
@@ -439,7 +468,8 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 	authenticated, err = authPlugin.backends.AuthUnpwdCheck(ctx, username, password, clientid)
 
-	if cacheable && err == nil {
+	// The exp may have passed during the call: that result is not stored.
+	if cacheable && err == nil && !jwtExpired(username, false) {
 		authGranted := "false"
 		if authenticated {
 			authGranted = "true"
@@ -454,7 +484,9 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 }
 
 //export AuthAclCheck
-func AuthAclCheck(clientid, username, topic *C.char, acc C.int) uint8 {
+func AuthAclCheck(clientid, username, topic *C.char, acc C.int) (result uint8) {
+	defer recoverCheck("acl", &result)
+
 	var ok bool
 	var err error
 
@@ -526,7 +558,8 @@ func authAclCheck(clientid, username, topic string, acc int) (aclCheck bool, err
 
 	aclCheck, err = authPlugin.backends.AuthAclCheck(ctx, clientid, username, topic, acc)
 
-	if cacheable && err == nil {
+	// The exp may have passed during the call: that result is not stored.
+	if cacheable && err == nil && !jwtExpired(username, true) {
 		authGranted := "false"
 		if aclCheck {
 			authGranted = "true"
@@ -559,6 +592,16 @@ func authResult(ok bool, err error) string {
 		return "granted"
 	}
 	return "rejected"
+}
+
+// recoverCheck turns a panic in a check into AuthError, which mosquitto treats as a denial.
+// Without it a panic in any backend or hasher crosses the cgo boundary and stops the broker.
+// The arguments are not logged: they can hold a password or a token.
+func recoverCheck(kind string, result *uint8) {
+	if r := recover(); r != nil {
+		log.Errorf("%s check panicked, denying: %v\n%s", kind, r, debug.Stack())
+		*result = AuthError
+	}
 }
 
 //export AuthPskKeyGet

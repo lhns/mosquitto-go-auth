@@ -152,3 +152,49 @@ func TestPBKDF2(t *testing.T) {
 		assert.False(t, b64Hasher.Compare("other", passwordHash))
 	})
 }
+
+// Only the options of the backend itself are taken: a name that merely contains the backend name,
+// such as filesystem_hasher for files, is not.
+func TestProcessHashOptsMatchesBackendPrefixOnly(t *testing.T) {
+	authOpts := map[string]string{
+		"files_hasher":             "bcrypt",
+		"files_hasher_cost":        "7",
+		"files_register":           "user",
+		"filesystem_hasher":        "argon2id",
+		"filesystem_hasher_memory": "1024",
+		"myfiles_hasher_cost":      "15",
+		"hasher":                   "pbkdf2",
+	}
+
+	assert.Equal(t, map[string]string{
+		"hasher":      "bcrypt",
+		"hasher_cost": "7",
+		"register":    "user",
+	}, processHashOpts(authOpts, "files"))
+
+	hasher, ok := NewHasher(authOpts, "files").(bcryptHasher)
+	assert.True(t, ok)
+	assert.Equal(t, 7, hasher.cost)
+}
+
+// Every backend prefix keeps finding its documented hasher options.
+func TestProcessHashOptsDocumentedBackendOptions(t *testing.T) {
+	for _, prefix := range []string{"pg", "mysql", "sqlite", "mongo", "redis", "files", "jwt", "ldap", "js", "plugin"} {
+		authOpts := map[string]string{
+			prefix + "_hasher":               "argon2id",
+			prefix + "_hasher_salt_size":     "16",
+			prefix + "_hasher_iterations":    "3",
+			prefix + "_hasher_keylen":        "64",
+			prefix + "_hasher_memory":        "4096",
+			prefix + "_hasher_parallelism":   "2",
+			prefix + "_hasher_cost":          "10",
+			prefix + "_hasher_algorithm":     "sha256",
+			prefix + "_hasher_salt_encoding": "utf-8",
+		}
+		got := processHashOpts(authOpts, prefix)
+		assert.Len(t, got, len(authOpts), prefix)
+		assert.Equal(t, "argon2id", got["hasher"], prefix)
+		assert.Equal(t, "4096", got["hasher_memory"], prefix)
+		assert.Equal(t, "utf-8", got["hasher_salt_encoding"], prefix)
+	}
+}

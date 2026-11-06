@@ -21,7 +21,7 @@ without-vcs:
 
 test:
 	cd plugin && make
-	go test ./backends ./cache ./hashing ./telemetry -v -count=1 -buildvcs=false
+	go test ./backends/... ./cache ./hashing ./telemetry -v -count=1 -buildvcs=false
 	go test . -v -count=1 -buildvcs=false -tags test
 	rm plugin/*.so
 
