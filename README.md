@@ -1464,6 +1464,7 @@ Options for `ldap` are the following:
 | Option                                    | default              | Mandatory | Meaning                                                            |
 |-------------------------------------------|----------------------|:---------:|--------------------------------------------------------------------|
 | auth_opt_ldap_url                         | ldap://localhost:389 |     N     | LDAP Server URL                                                    |
+| auth_opt_ldap_timeout                     | 10                   |     N     | Seconds for the connect and each bind and search response, see below |
 | auth_opt_ldap_user_dn                     |                      |     Y     | LDAP User DN                                                       |
 | auth_opt_ldap_group_dn                    |                      |     N     | LDAP Group DN, Required for acl checks                        |
 | auth_opt_ldap_bind_dn                     |                      |     Y     | LDAP Bind DN                                                       |
@@ -1490,6 +1491,10 @@ auth_opt_ldap_superuser_filter (&(uid=%s)(objectClass=person)(memberOf=mqtt_supe
 auth_opt_ldap_acl_topic_pattern_attribute mqtt_topic_pattern
 auth_opt_ldap_acl_acc_attribute mqtt_topic_acc
 ```
+
+`ldap_timeout` limits the connect and the wait for the response of each bind and each search to this number of seconds (default 10). A connect, bind or search that does not end in time ends with an error. The option does not limit the write of a request: a write that the server does not read can still block. `ldap_timeout 0` removes both plugin limits, also the connect limit of 60 seconds that earlier versions had (limits of the operating system can still apply). A value that is not a number of 0 or more, or that is too large for a duration, gives a warning and the default.
+
+The plugin keeps one service connection, bound with `ldap_bind_dn`, for all searches (user, superuser and ACL). Requests use it one at a time. When a search fails with a network error or a timeout, the plugin opens a new service connection and runs the search again once. If this also fails, the request returns an error. The plugin checks a user password on a separate connection that it opens for each check and closes after the bind. Only a refusal of the server is a deny: invalid credentials, no such object, an invalid DN, constraintViolation (for example a password policy), inappropriateAuthentication or insufficientAccessRights. Other results (for example busy, unavailable or unwillingToPerform) and network errors of the user bind are errors and not a deny. After the plugin stops, a request returns an error.
 
 
 ### Custom
