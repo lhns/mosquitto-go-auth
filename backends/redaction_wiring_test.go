@@ -132,7 +132,7 @@ func TestRedaction_LDAPErrorEcho(t *testing.T) {
 	for _, hide := range []bool{true, false} {
 		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
 			l := &LDAP{
-				client: failingLDAP{}, UserFilter: "(cn=%s)", SuperuserFilter: "(cn=%s)", GroupFilter: "(member=%s)",
+				state: &ldapState{client: failingLDAP{}}, UserFilter: "(cn=%s)", SuperuserFilter: "(cn=%s)", GroupFilter: "(member=%s)",
 				GroupDN: "ou=g", AclTopicPatternAttribute: "p", AclAccAttribute: "a", hideToken: hide,
 			}
 			hook := captureDebugLogs(t)
