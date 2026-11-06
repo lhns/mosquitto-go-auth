@@ -988,7 +988,7 @@ The following options are supported by the `jwt` backend when remote is set to t
 | --------------------------- | --------- | :-------: | ------------------------------------------------------------- |
 | auth_opt_jwt_host           |           |    Y/N    | API server host name or ip                                    |
 | auth_opt_jwt_port           |           |     Y     | TCP port number                                               |
-| auth_opt_jwt_http_timeout   |     5     |     N     | Timeout in seconds for http client                            |
+| auth_opt_jwt_http_timeout   |     5     |     N     | Timeout in seconds for http client (0 or less, or too large: the default)   |
 | auth_opt_jwt_getuser_uri    |           |     Y     | URI for check username/password                               |
 | auth_opt_jwt_superuser_uri  |           |     N     | URI for check superuser                                       |
 | auth_opt_jwt_aclcheck_uri   |           |     Y     | URI for check acl                                             |
@@ -1264,7 +1264,7 @@ The following options are supported:
 | auth_opt_http_ca_cert       |           |     N     | PEM file with CA certificates      |
 | auth_opt_http_response_mode | status    |     N     | Response type (status, json, text) |
 | auth_opt_http_params_mode   | json      |     N     | Data type (json, form)             |
-| auth_opt_http_timeout       | 5         |     N     | Timeout in seconds                 |
+| auth_opt_http_timeout       | 5         |     N     | Timeout in seconds (0 or less, or too large: the default) |
 | auth_opt_http_user_agent    | mosquitto |     N     | User Agent to use in requests      |
 | auth_opt_http_method        | POST      |     N     | Http method used (POST, GET, PUT)  |
 | auth_opt_http_header_<name> |           |     N     | Extra header forwarded to backend  |
@@ -1593,6 +1593,7 @@ The following options are supported:
 | auth_opt_grpc_tls_key              |           |     N     | gRPC client TLS key path       |
 | auth_opt_grpc_disable_superuser    |   false   |     N     | disable superuser checks       |
 | auth_opt_grpc_fail_on_dial_error   |   false   |     N     | fail to init on dial error     |
+| auth_opt_grpc_timeout_ms           |   5000    |     N     | timeout of each check RPC in ms (0 or less, or too large: the default) |
 | auth_opt_grpc_dial_timeout_ms      |   500     |     N     | dial timeout in ms             |
 
 The last one, `grpc_fail_on_dial_error` indicates if failing to dial the service on initialization should be

@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -119,14 +120,7 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		http.VerifyPeer = true
 	}
 
-	http.Timeout = 5
-	if timeoutString, ok := authOpts["http_timeout"]; ok {
-		if timeout, err := strconv.Atoi(timeoutString); err == nil {
-			http.Timeout = timeout
-		} else {
-			log.Errorf("unable to parse timeout: %s", err)
-		}
-	}
+	http.Timeout = remoteTimeoutSeconds(authOpts, "http_timeout")
 
 	for key, value := range authOpts {
 		if strings.HasPrefix(key, "http_header_") && value != "" {
@@ -190,6 +184,30 @@ func remoteCAPool(opt string, withTLS, verifyPeer bool, caPath string) (*x509.Ce
 		return nil, nil
 	}
 	return pool, nil
+}
+
+// defaultRemoteTimeout is the timeout of a remote HTTP request in seconds (http_timeout,
+// jwt_http_timeout).
+const defaultRemoteTimeout = 5
+
+// remoteTimeoutSeconds reads a request timeout in seconds. A value that is not a number gives an
+// error log and the default, as before. A value of 0 or less gives a warning and the default: a
+// request must not wait without a limit.
+func remoteTimeoutSeconds(authOpts map[string]string, name string) int {
+	v, ok := authOpts[name]
+	if !ok {
+		return defaultRemoteTimeout
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Errorf("unable to parse timeout: %s", err)
+		return defaultRemoteTimeout
+	}
+	if n <= 0 || time.Duration(n) > time.Duration(1<<63-1)/time.Second {
+		log.Warnf("option %s must be a number of seconds above 0 and in the range of a duration, the default (%d) is used", name, defaultRemoteTimeout)
+		return defaultRemoteTimeout
+	}
+	return n
 }
 
 func (o HTTP) GetUser(username, password, clientid string) (bool, error) {
