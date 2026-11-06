@@ -43,7 +43,12 @@ WORKDIR /app
 
 RUN mkdir -p mosquitto/auth mosquitto/conf.d
 
-RUN wget http://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
+# The download server sometimes closes the TLS connection. Try again before the build fails.
+RUN for i in 1 2 3 4 5; do \
+        wget -q https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz && break; \
+        rm -f mosquitto-${MOSQUITTO_VERSION}.tar.gz; sleep 5; \
+    done; \
+    test -f mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
 RUN tar xzvf mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
