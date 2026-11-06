@@ -1,3 +1,5 @@
+//go:build customplugin
+
 package main
 
 import (
