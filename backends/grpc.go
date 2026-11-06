@@ -79,7 +79,13 @@ func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	addr := fmt.Sprintf("%s:%s", authOpts["grpc_host"], authOpts["grpc_port"])
 	withBlock := authOpts["grpc_fail_on_dial_error"] == "true"
 
-	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock, func() bool { return g.hideToken })
+	insecureOpt, ok := authOpts["grpc_insecure"]
+	if ok && insecureOpt == "" {
+		// An empty value is not "not set".
+		return nil, errors.New("grpc_insecure must be true or false")
+	}
+
+	options, err := setup(addr, caCert, tlsCert, tlsKey, insecureOpt, withBlock, func() bool { return g.hideToken })
 	if err != nil {
 		return nil, err
 	}
@@ -202,9 +208,25 @@ func (o *GRPC) Halt() {
 	}
 }
 
+// setup builds the dial options. insecureOpt is the grpc_insecure option. When it is not set, a CA
+// selects TLS and no CA selects plaintext (as before). "false" requires TLS and uses the system
+// roots when there is no CA. "true" selects plaintext and conflicts with the TLS options.
 func setup(
-	hostname, caCert, tlsCert, tlsKey string, withBlock bool, hideToken func() bool,
+	hostname, caCert, tlsCert, tlsKey, insecureOpt string, withBlock bool, hideToken func() bool,
 ) ([]grpc.DialOption, error) {
+	useTLS := caCert != ""
+	switch insecureOpt {
+	case "":
+	case "false":
+		useTLS = true
+	case "true":
+		if caCert != "" || tlsCert != "" || tlsKey != "" {
+			return nil, errors.New("grpc_insecure is true, but grpc_ca_cert, grpc_tls_cert or grpc_tls_key is set")
+		}
+	default:
+		return nil, errors.New("grpc_insecure must be true or false")
+	}
+
 	logrusEntry := log.NewEntry(log.StandardLogger())
 	logrusOpts := []grpc_logrus.Option{
 		grpc_logrus.WithLevels(grpc_logrus.DefaultCodeToLevel),
@@ -229,22 +251,28 @@ func setup(
 		nsOpts = append(nsOpts, grpc.WithBlock())
 	}
 
-	if len(caCert) == 0 {
+	if !useTLS {
 		nsOpts = append(nsOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		log.WithField("server", hostname).Warning("creating insecure grpc client")
+		if insecureOpt == "true" {
+			log.WithField("server", hostname).Warning("creating insecure grpc client: grpc_insecure is true, so the traffic and the credentials are not encrypted")
+		} else {
+			log.WithField("server", hostname).Warning("creating insecure grpc client: no grpc_ca_cert is set. Set grpc_insecure to false to require TLS, or to true to confirm plaintext")
+		}
 	} else {
 		log.WithField("server", hostname).Info("creating grpc client")
 
-		caCertBytes, err := ioutil.ReadFile(caCert)
-		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("could not load grpc ca certificate (grpc_ca_cert) from file (%s)", caCert))
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCertBytes) {
-			return nil, errors.New("append ca cert to pool error. Maybe the ca file (grpc_ca_cert) does not contain a valid x509 certificate")
-		}
-		tlsConfig := &tls.Config{
-			RootCAs: caCertPool,
+		// Without a CA, RootCAs stays nil: the system roots verify the server.
+		tlsConfig := &tls.Config{}
+		if caCert != "" {
+			caCertBytes, err := ioutil.ReadFile(caCert)
+			if err != nil {
+				return nil, errors.Wrap(err, fmt.Sprintf("could not load grpc ca certificate (grpc_ca_cert) from file (%s)", caCert))
+			}
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCertBytes) {
+				return nil, errors.New("append ca cert to pool error. Maybe the ca file (grpc_ca_cert) does not contain a valid x509 certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
 		}
 
 		if len(tlsCert) != 0 && len(tlsKey) != 0 {

@@ -1595,11 +1595,20 @@ The following options are supported:
 | auth_opt_grpc_fail_on_dial_error   |   false   |     N     | fail to init on dial error     |
 | auth_opt_grpc_timeout_ms           |   5000    |     N     | timeout of each check RPC in ms (0 or less, or too large: the default) |
 | auth_opt_grpc_dial_timeout_ms      |   500     |     N     | dial timeout in ms             |
+| auth_opt_grpc_insecure             |           |     N     | true: plaintext, false: TLS    |
 
 The last one, `grpc_fail_on_dial_error` indicates if failing to dial the service on initialization should be
 treated as a fatal error, or it should only be logged and then an attempt to redial should be made on every
 user or ACL check until the connection may be established. Then the backend will assume it has a healthy client
 and let the underlying package manage automatic reconnections.
+
+`grpc_insecure` selects TLS or plaintext for the connection to the service:
+
+- Not set: the behaviour does not change. With `grpc_ca_cert` the plugin uses TLS. Without it the plugin uses plaintext and logs a warning at startup.
+- `false`: the plugin requires TLS. It verifies the server with `grpc_ca_cert` when it is set, or with the system CAs when it is not.
+- `true`: the plugin uses plaintext and logs a warning at startup. The traffic and the credentials are not encrypted. With `grpc_ca_cert`, `grpc_tls_cert` or `grpc_tls_key` also set, the plugin does not start.
+
+Any other value stops the start of the plugin.
 
 #### Service
 
