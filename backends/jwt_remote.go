@@ -151,14 +151,7 @@ func NewRemoteJWTChecker(authOpts map[string]string, options tokenOptions, versi
 		return nil, errors.Errorf("JWT backend error: missing remote options: %s", missingOpts)
 	}
 
-	checker.timeout = 5
-	if timeoutString, ok := authOpts["jwt_http_timeout"]; ok {
-		if timeout, err := strconv.Atoi(timeoutString); err == nil {
-			checker.timeout = timeout
-		} else {
-			log.Errorf("unable to parse timeout: %s", err)
-		}
-	}
+	checker.timeout = remoteTimeoutSeconds(authOpts, "jwt_http_timeout")
 
 	roots, err := remoteCAPool("jwt", checker.withTLS, checker.verifyPeer, authOpts["jwt_ca_cert"])
 	if err != nil {

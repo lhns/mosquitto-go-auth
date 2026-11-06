@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"strconv"
 	"time"
 
@@ -29,16 +30,21 @@ type GRPC struct {
 	dialOptions      []grpc.DialOption
 	hostname         string
 	timeout          int
+	callTimeout      time.Duration // limit of each check RPC, see grpc_timeout_ms
 	name             string
 	hideToken        bool // a jwt backend is configured: the error text can echo the token
 }
 
-const defaultGRPCTimeoutMs = 500
+const (
+	defaultGRPCTimeoutMs     = 500
+	defaultGRPCCallTimeoutMs = 5000
+)
 
 // NewGRPC tries to connect to the gRPC service at the given host.
 func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	g := &GRPC{
-		timeout: defaultGRPCTimeoutMs,
+		timeout:     defaultGRPCTimeoutMs,
+		callTimeout: defaultGRPCCallTimeoutMs * time.Millisecond,
 	}
 
 	if authOpts["grpc_host"] == "" || authOpts["grpc_port"] == "" {
@@ -56,6 +62,14 @@ func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 			log.Warnf("invalid grpc dial timeout value: %s", err)
 		} else {
 			g.timeout = timeoutMs
+		}
+	}
+
+	if v, ok := authOpts["grpc_timeout_ms"]; ok {
+		if ms, err := strconv.ParseInt(v, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt64/int64(time.Millisecond) {
+			g.callTimeout = time.Duration(ms) * time.Millisecond
+		} else {
+			log.Warnf("option grpc_timeout_ms must be a number of milliseconds above 0 and in the range of a duration, the default (%d) is used", defaultGRPCCallTimeoutMs)
 		}
 	}
 
@@ -89,7 +103,9 @@ func (o *GRPC) GetUser(username, password, clientid string) (bool, error) {
 		Clientid: clientid,
 	}
 
-	resp, err := o.client.GetUser(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.GetUser(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -111,7 +127,9 @@ func (o *GRPC) GetSuperuser(username string) (bool, error) {
 		Username: username,
 	}
 
-	resp, err := o.client.GetSuperuser(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.GetSuperuser(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -132,7 +150,9 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 		Acc:      acc,
 	}
 
-	resp, err := o.client.CheckAcl(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.CheckAcl(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -144,10 +164,21 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 
 }
 
+// callContext limits one RPC of a check to grpc_timeout_ms.
+func (o *GRPC) callContext() (context.Context, context.CancelFunc) {
+	t := o.callTimeout
+	if t <= 0 {
+		t = defaultGRPCCallTimeoutMs * time.Millisecond
+	}
+	return context.WithTimeout(context.Background(), t)
+}
+
 // GetName gets the gRPC backend's name.
 func (o *GRPC) GetName() string {
 	if len(o.name) == 0 {
-		resp, err := o.client.GetName(context.Background(), &empty.Empty{})
+		ctx, cancel := o.callContext()
+		defer cancel()
+		resp, err := o.client.GetName(ctx, &empty.Empty{})
 
 		if err != nil {
 			o.name = "gRPC"
