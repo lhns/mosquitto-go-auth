@@ -994,11 +994,14 @@ The following options are supported by the `jwt` backend when remote is set to t
 | auth_opt_jwt_aclcheck_uri   |           |     Y     | URI for check acl                                             |
 | auth_opt_jwt_with_tls       | false     |     N     | Use TLS on connect                                            |
 | auth_opt_jwt_verify_peer    | false     |     N     | Whether to verify peer for tls                                |
+| auth_opt_jwt_ca_cert        |           |     N     | PEM file with CA certificates                                 |
 | auth_opt_jwt_response_mode  | status    |     N     | Response type (status, json, text)                            |
 | auth_opt_jwt_params_mode    | json      |     N     | Data type (json, form)                                        |
 | auth_opt_jwt_user_agent     | mosquitto |     N     | User agent for requests                                       |
 | auth_opt_jwt_http_method    | POST      |     N     | Http method used (POST, GET, PUT)                             |
 | auth_opt_jwt_host_whitelist |           |    Y/N    | List of hosts that are eligible to be an authoritative server |
+
+The default of `jwt_verify_peer` is `false`: with `jwt_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `jwt_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `jwt_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `jwt_verify_peer` is `false`, `jwt_ca_cert` has no effect, and the plugin logs a warning. When `jwt_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `jwt_with_tls` is `false`, the plugin ignores `jwt_ca_cert`.
 
 URIs (like jwt_getuser_uri) are expected to be in the form `/path`. For example, if jwt_with_tls is `false`, jwt_host is `localhost`, jwt_port `3000` and jwt_getuser_uri is `/user`, mosquitto will send a http request to `http://localhost:3000/user` to get a response to check against. How data is sent (either json encoded or as form values) and received (as a simple http status code, a json encoded response or plain text), is given by options jwt_response_mode and jwt_params_mode.
 
@@ -1248,12 +1251,15 @@ The following options are supported:
 | auth_opt_http_aclcheck_uri  |           |     Y     | URI for check acl                  |
 | auth_opt_http_with_tls      | false     |     N     | Use TLS on connect                 |
 | auth_opt_http_verify_peer   | false     |     N     | Whether to verify peer for tls     |
+| auth_opt_http_ca_cert       |           |     N     | PEM file with CA certificates      |
 | auth_opt_http_response_mode | status    |     N     | Response type (status, json, text) |
 | auth_opt_http_params_mode   | json      |     N     | Data type (json, form)             |
 | auth_opt_http_timeout       | 5         |     N     | Timeout in seconds                 |
 | auth_opt_http_user_agent    | mosquitto |     N     | User Agent to use in requests      |
 | auth_opt_http_method        | POST      |     N     | Http method used (POST, GET, PUT)  |
 | auth_opt_http_header_<name> |           |     N     | Extra header forwarded to backend  |
+
+The default of `http_verify_peer` is `false`: with `http_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `http_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `http_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `http_verify_peer` is `false`, `http_ca_cert` has no effect, and the plugin logs a warning. When `http_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `http_with_tls` is `false`, the plugin ignores `http_ca_cert`.
 
 #### Response mode
 
