@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"net"
 	h "net/http"
 	"net/url"
 	"regexp"
@@ -32,7 +32,8 @@ type remoteJWTChecker struct {
 
 	options tokenOptions
 
-	client *h.Client
+	client    *h.Client
+	redirects *redirectWarner
 }
 
 type Response struct {
@@ -163,7 +164,16 @@ func NewRemoteJWTChecker(authOpts map[string]string, options tokenOptions, versi
 	if err != nil {
 		return nil, errors.Errorf("JWT backend error: %s", err)
 	}
-	checker.client = newRemoteClient(checker.timeout, checker.verifyPeer, roots)
+	follow := parseBoolOption(authOpts, "jwt_follow_redirects", false)
+	var hostOK func(*url.URL) bool
+	if follow {
+		log.Warn("jwt_follow_redirects is true: the plugin follows redirects to the same host or to an allowed host")
+		if checker.host == "" {
+			hostOK = checker.redirectHostOK
+		}
+	}
+	checker.client = newRemoteClient(checker.timeout, checker.verifyPeer, roots, follow, hostOK)
+	checker.redirects = newRedirectWarner("jwt", follow)
 
 	return checker, nil
 }
@@ -189,7 +199,7 @@ func (o *remoteJWTChecker) GetUser(token string) (bool, error) {
 		}
 	}
 
-	return o.jwtRequest(o.userUri, token, dataMap, urlValues)
+	return o.jwtRequest("user", o.userUri, token, dataMap, urlValues)
 }
 
 func (o *remoteJWTChecker) GetSuperuser(token string) (bool, error) {
@@ -216,7 +226,7 @@ func (o *remoteJWTChecker) GetSuperuser(token string) (bool, error) {
 		}
 	}
 
-	return o.jwtRequest(o.superuserUri, token, dataMap, urlValues)
+	return o.jwtRequest("superuser", o.superuserUri, token, dataMap, urlValues)
 }
 
 func (o *remoteJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (bool, error) {
@@ -244,14 +254,14 @@ func (o *remoteJWTChecker) CheckAcl(token, topic, clientid string, acc int32) (b
 		urlValues.Add("username", username)
 	}
 
-	return o.jwtRequest(o.aclUri, token, dataMap, urlValues)
+	return o.jwtRequest("acl", o.aclUri, token, dataMap, urlValues)
 }
 
 func (o *remoteJWTChecker) Halt() {
 	// NO-OP
 }
 
-func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]interface{}, urlValues url.Values) (bool, error) {
+func (o *remoteJWTChecker) jwtRequest(check, uri, token string, dataMap map[string]interface{}, urlValues url.Values) (bool, error) {
 
 	// Don't do the request if the client is nil.
 	if o.client == nil {
@@ -275,7 +285,6 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		fullURI = fmt.Sprintf("%s%s:%s%s", tlsStr, host, o.port, uri)
 	}
 
-	var resp *h.Response
 	var req *h.Request
 
 	switch o.paramsMode {
@@ -312,7 +321,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
-	resp, err = o.client.Do(req)
+	status, body, err := doRemote(o.client, req)
 
 	if err != nil {
 		err = hideToken(true, err, token)
@@ -320,20 +329,11 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		return false, err
 	}
 
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		err = hideToken(true, err, token)
-		log.Errorf("read error: %s", err)
-		return false, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Infof("error code: %d", resp.StatusCode)
-		if resp.StatusCode >= 500 {
-			err = fmt.Errorf("error code: %d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		log.Infof("error code: %d", status)
+		o.redirects.check(check, status)
+		if status >= 500 {
+			err = fmt.Errorf("error code: %d", status)
 		}
 		return false, err
 	}
@@ -342,7 +342,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			log.Infof("api error: status %d", resp.StatusCode)
+			log.Infof("api error: status %d", status)
 			return false, nil
 		}
 
@@ -358,7 +358,7 @@ func (o *remoteJWTChecker) jwtRequest(uri, token string, dataMap map[string]inte
 		}
 
 		if !response.Ok {
-			log.Infof("api error: status %d", resp.StatusCode)
+			log.Infof("api error: status %d", status)
 			return false, nil
 		}
 
@@ -391,6 +391,45 @@ func (o *remoteJWTChecker) getHost(token string) (string, error) {
 	}
 
 	return iss, nil
+}
+
+// redirectHostOK tells if a followed redirect may go to u, when the issuer selects the host. It
+// compares the effective host and port. An allowlist entry without a port means jwt_port (as for an
+// issuer), or the default port of the request scheme when jwt_port is empty. A destination without
+// a port means the default port of its scheme. With "*" any host is accepted, as for an issuer.
+func (o *remoteJWTChecker) redirectHostOK(u *url.URL) bool {
+	if len(o.hostWhitelist) == 1 && o.hostWhitelist[0] == whitelistMagicForAnyHost {
+		return true
+	}
+	destPort := u.Port()
+	if destPort == "" {
+		destPort = defaultPort(u.Scheme)
+	}
+	entryPort := o.port
+	if entryPort == "" {
+		scheme := "http"
+		if o.withTLS {
+			scheme = "https"
+		}
+		entryPort = defaultPort(scheme)
+	}
+	for _, e := range o.hostWhitelist {
+		host, port, err := net.SplitHostPort(e)
+		if err != nil {
+			host, port = e, entryPort
+		}
+		if strings.EqualFold(host, u.Hostname()) && port == destPort {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultPort(scheme string) string {
+	if scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func (o *remoteJWTChecker) isHostWhitelisted(host string) bool {
