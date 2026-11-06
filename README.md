@@ -1000,6 +1000,16 @@ The following options are supported by the `jwt` backend when remote is set to t
 | auth_opt_jwt_user_agent     | mosquitto |     N     | User agent for requests                                       |
 | auth_opt_jwt_http_method    | POST      |     N     | Http method used (POST, GET, PUT)                             |
 | auth_opt_jwt_host_whitelist |           |    Y/N    | List of hosts that are eligible to be an authoritative server |
+| auth_opt_jwt_follow_redirects | false   |     N     | Follow redirects (see below)                                  |
+
+The plugin accepts a 2xx response body of at most 1 MiB (1048576 bytes). It reads one more byte to find a longer body: a longer body is an error, and the check is refused. The plugin does not read the body of a response that is not 2xx. It discards at most 4 KiB of unread data before it closes a body.
+
+The plugin does not follow redirects. A 3xx response is a status that is not 2xx, so the check is refused without an error. Set the path options (for example `jwt_getuser_uri`) to the final path, and change `jwt_host`, `jwt_port` and `jwt_with_tls` when the final server is a different one. With `jwt_follow_redirects true`, the plugin follows redirects and logs a warning at startup. A followed redirect has these limits:
+
+- At most 3 redirects.
+- A redirect from `https` to `http` is refused, also after an earlier redirect. A redirect from `http` to `https` is accepted only for the same host name, and only to port 443 or to the port of the first request.
+- Other redirects must go to the same scheme, host and port as the first request. The plugin compares host names without case, and a URL without a port has the default port of its scheme (80 or 443). When `jwt_host` is empty (the issuer selects the host), a redirect with the same scheme can also go to a host in `jwt_host_whitelist`: an entry without a port means `jwt_port`. With `*`, any host is accepted.
+- The `Authorization` header (the token) goes only to a host that these rules accept. A refused redirect is not sent, and the check fails with an error.
 
 The default of `jwt_verify_peer` is `false`: with `jwt_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `jwt_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `jwt_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `jwt_verify_peer` is `false`, `jwt_ca_cert` has no effect, and the plugin logs a warning. When `jwt_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `jwt_with_tls` is `false`, the plugin ignores `jwt_ca_cert`.
 
@@ -1258,6 +1268,15 @@ The following options are supported:
 | auth_opt_http_user_agent    | mosquitto |     N     | User Agent to use in requests      |
 | auth_opt_http_method        | POST      |     N     | Http method used (POST, GET, PUT)  |
 | auth_opt_http_header_<name> |           |     N     | Extra header forwarded to backend  |
+| auth_opt_http_follow_redirects | false  |     N     | Follow redirects (see below)       |
+
+The plugin accepts a 2xx response body of at most 1 MiB (1048576 bytes). It reads one more byte to find a longer body: a longer body is an error, and the check is refused. The plugin does not read the body of a response that is not 2xx. It discards at most 4 KiB of unread data before it closes a body.
+
+The plugin does not follow redirects. A 3xx response is a status that is not 2xx, so the check is refused without an error. Set the path options (for example `http_getuser_uri`) to the final path, and change `http_host`, `http_port` and `http_with_tls` when the final server is a different one. With `http_follow_redirects true`, the plugin follows redirects and logs a warning at startup. A followed redirect has these limits:
+
+- At most 3 redirects.
+- A redirect from `https` to `http` is refused, also after an earlier redirect. A redirect from `http` to `https` is accepted only for the same host name, and only to port 443 or to the port of the first request.
+- Other redirects must go to the same scheme, host and port as the first request. The plugin compares host names without case, and a URL without a port has the default port of its scheme (80 or 443). A redirect to another host is refused, so the custom headers (`http_header_<name>`) never go to another host. A refused redirect is not sent, and the check fails with an error.
 
 The default of `http_verify_peer` is `false`: with `http_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `http_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `http_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `http_verify_peer` is `false`, `http_ca_cert` has no effect, and the plugin logs a warning. When `http_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `http_with_tls` is `false`, the plugin ignores `http_ca_cert`.
 

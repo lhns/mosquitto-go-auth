@@ -2,17 +2,14 @@ package backends
 
 import (
 	"bytes"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	h "net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -153,7 +150,11 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 	if err != nil {
 		return http, errors.Errorf("HTTP backend error: %s", err)
 	}
-	http.Client = newRemoteClient(http.Timeout, http.VerifyPeer, roots)
+	follow := parseBoolOption(authOpts, "http_follow_redirects", false)
+	if follow {
+		log.Warn("http_follow_redirects is true: the plugin follows redirects to the same host")
+	}
+	http.Client = newRemoteClient(http.Timeout, http.VerifyPeer, roots, follow, nil)
 
 	return http, nil
 }
@@ -189,24 +190,6 @@ func remoteCAPool(opt string, withTLS, verifyPeer bool, caPath string) (*x509.Ce
 		return nil, nil
 	}
 	return pool, nil
-}
-
-// newRemoteClient builds the client of a remote backend. With verifyPeer false the server
-// certificate is not checked. With roots set, the server certificate is checked against roots.
-func newRemoteClient(timeout int, verifyPeer bool, roots *x509.CertPool) *h.Client {
-	c := &h.Client{Timeout: time.Duration(timeout) * time.Second}
-	if !verifyPeer {
-		c.Transport = &h.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			MaxIdleConns:    100,
-			IdleConnTimeout: 90 * time.Second,
-		}
-	} else if roots != nil {
-		tr := h.DefaultTransport.(*h.Transport).Clone()
-		tr.TLSClientConfig = &tls.Config{RootCAs: roots}
-		c.Transport = tr
-	}
-	return c
 }
 
 func (o HTTP) GetUser(username, password, clientid string) (bool, error) {
@@ -283,7 +266,6 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		fullUri = fmt.Sprintf("%s%s:%s%s", tlsStr, o.Host, o.Port, uri)
 	}
 
-	var resp *h.Response
 	var err error
 	var req *h.Request
 
@@ -328,7 +310,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		req.Header.Set(header, value)
 	}
 
-	resp, err = o.Client.Do(req)
+	status, body, err := doRemote(o.Client, req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -336,20 +318,10 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		return false, err
 	}
 
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		err = hideToken(o.hideToken, err, username)
-		log.Errorf("read error: %s", err)
-		return false, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Infof("error code: %d", resp.StatusCode)
-		if resp.StatusCode >= 500 {
-			err = fmt.Errorf("error code: %d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		log.Infof("error code: %d", status)
+		if status >= 500 {
+			err = fmt.Errorf("error code: %d", status)
 		}
 		return false, err
 	}
@@ -358,7 +330,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			o.logAPIError(string(body), resp.StatusCode)
+			o.logAPIError(string(body), status)
 			return false, nil
 		}
 
@@ -374,7 +346,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			o.logAPIError(response.Error, resp.StatusCode)
+			o.logAPIError(response.Error, status)
 			return false, nil
 		}
 
