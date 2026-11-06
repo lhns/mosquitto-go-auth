@@ -2,12 +2,12 @@ package backends
 
 import (
 	"bytes"
-	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	h "net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -120,14 +120,7 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		http.VerifyPeer = true
 	}
 
-	http.Timeout = 5
-	if timeoutString, ok := authOpts["http_timeout"]; ok {
-		if timeout, err := strconv.Atoi(timeoutString); err == nil {
-			http.Timeout = timeout
-		} else {
-			log.Errorf("unable to parse timeout: %s", err)
-		}
-	}
+	http.Timeout = remoteTimeoutSeconds(authOpts, "http_timeout")
 
 	for key, value := range authOpts {
 		if strings.HasPrefix(key, "http_header_") && value != "" {
@@ -147,18 +140,74 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		return http, errors.Errorf("HTTP backend error: missing remote options: %s", missingOpts)
 	}
 
-	http.Client = &h.Client{Timeout: time.Duration(http.Timeout) * time.Second}
-
-	if !http.VerifyPeer {
-		tr := &h.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			MaxIdleConns:    100,
-			IdleConnTimeout: 90 * time.Second,
-		}
-		http.Client.Transport = tr
+	roots, err := remoteCAPool("http", http.WithTLS, http.VerifyPeer, authOpts["http_ca_cert"])
+	if err != nil {
+		return http, errors.Errorf("HTTP backend error: %s", err)
 	}
+	follow := parseBoolOption(authOpts, "http_follow_redirects", false)
+	if follow {
+		log.Warn("http_follow_redirects is true: the plugin follows redirects to the same host")
+	}
+	http.Client = newRemoteClient(http.Timeout, http.VerifyPeer, roots, follow, nil)
 
 	return http, nil
+}
+
+// remoteCAPool handles the TLS options of a remote backend (opt is the option prefix, "http" or
+// "jwt"). When TLS is on and verifyPeer is false, it logs a warning, and one more when a CA file is
+// set, because the file has no effect. When TLS is on and a CA file is set, the file must hold at
+// least one valid PEM certificate. With verifyPeer true the result is the system pool plus the
+// certificates of the file. It is nil when no CA file is used.
+func remoteCAPool(opt string, withTLS, verifyPeer bool, caPath string) (*x509.CertPool, error) {
+	if !withTLS {
+		return nil, nil
+	}
+	var pool *x509.CertPool
+	if caPath != "" {
+		pem, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, errors.Errorf("%s_ca_cert: the file cannot be read", opt)
+		}
+		if pool, err = x509.SystemCertPool(); err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.Errorf("%s_ca_cert: the file has no valid PEM certificate", opt)
+		}
+	}
+	if !verifyPeer {
+		log.Warnf("%s_with_tls is true and %s_verify_peer is false: the plugin does not check the server certificate. "+
+			"Set %s_verify_peer to true (and %s_ca_cert for a private CA).", opt, opt, opt, opt)
+		if caPath != "" {
+			log.Warnf("%s_ca_cert has no effect until %s_verify_peer is true", opt, opt)
+		}
+		return nil, nil
+	}
+	return pool, nil
+}
+
+// defaultRemoteTimeout is the timeout of a remote HTTP request in seconds (http_timeout,
+// jwt_http_timeout).
+const defaultRemoteTimeout = 5
+
+// remoteTimeoutSeconds reads a request timeout in seconds. A value that is not a number gives an
+// error log and the default, as before. A value of 0 or less gives a warning and the default: a
+// request must not wait without a limit.
+func remoteTimeoutSeconds(authOpts map[string]string, name string) int {
+	v, ok := authOpts[name]
+	if !ok {
+		return defaultRemoteTimeout
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Errorf("unable to parse timeout: %s", err)
+		return defaultRemoteTimeout
+	}
+	if n <= 0 || time.Duration(n) > time.Duration(1<<63-1)/time.Second {
+		log.Warnf("option %s must be a number of seconds above 0 and in the range of a duration, the default (%d) is used", name, defaultRemoteTimeout)
+		return defaultRemoteTimeout
+	}
+	return n
 }
 
 func (o HTTP) GetUser(username, password, clientid string) (bool, error) {
@@ -235,7 +284,6 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		fullUri = fmt.Sprintf("%s%s:%s%s", tlsStr, o.Host, o.Port, uri)
 	}
 
-	var resp *h.Response
 	var err error
 	var req *h.Request
 
@@ -280,7 +328,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		req.Header.Set(header, value)
 	}
 
-	resp, err = o.Client.Do(req)
+	status, body, err := doRemote(o.Client, req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -288,20 +336,10 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		return false, err
 	}
 
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		err = hideToken(o.hideToken, err, username)
-		log.Errorf("read error: %s", err)
-		return false, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Infof("error code: %d", resp.StatusCode)
-		if resp.StatusCode >= 500 {
-			err = fmt.Errorf("error code: %d", resp.StatusCode)
+	if status < 200 || status >= 300 {
+		log.Infof("error code: %d", status)
+		if status >= 500 {
+			err = fmt.Errorf("error code: %d", status)
 		}
 		return false, err
 	}
@@ -310,7 +348,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 
 		//For test response, we expect "ok" or an error message.
 		if string(body) != "ok" {
-			o.logAPIError(string(body), resp.StatusCode)
+			o.logAPIError(string(body), status)
 			return false, nil
 		}
 
@@ -326,7 +364,7 @@ func (o HTTP) httpRequest(uri, username string, dataMap map[string]interface{}, 
 		}
 
 		if !response.Ok {
-			o.logAPIError(response.Error, resp.StatusCode)
+			o.logAPIError(response.Error, status)
 			return false, nil
 		}
 
