@@ -3,11 +3,13 @@ package backends
 import (
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	h "net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -147,18 +149,64 @@ func NewHTTP(authOpts map[string]string, logLevel log.Level, version string) (HT
 		return http, errors.Errorf("HTTP backend error: missing remote options: %s", missingOpts)
 	}
 
-	http.Client = &h.Client{Timeout: time.Duration(http.Timeout) * time.Second}
+	roots, err := remoteCAPool("http", http.WithTLS, http.VerifyPeer, authOpts["http_ca_cert"])
+	if err != nil {
+		return http, errors.Errorf("HTTP backend error: %s", err)
+	}
+	http.Client = newRemoteClient(http.Timeout, http.VerifyPeer, roots)
 
-	if !http.VerifyPeer {
-		tr := &h.Transport{
+	return http, nil
+}
+
+// remoteCAPool handles the TLS options of a remote backend (opt is the option prefix, "http" or
+// "jwt"). When TLS is on and verifyPeer is false, it logs a warning, and one more when a CA file is
+// set, because the file has no effect. When TLS is on and a CA file is set, the file must hold at
+// least one valid PEM certificate. With verifyPeer true the result is the system pool plus the
+// certificates of the file. It is nil when no CA file is used.
+func remoteCAPool(opt string, withTLS, verifyPeer bool, caPath string) (*x509.CertPool, error) {
+	if !withTLS {
+		return nil, nil
+	}
+	var pool *x509.CertPool
+	if caPath != "" {
+		pem, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, errors.Errorf("%s_ca_cert: the file cannot be read", opt)
+		}
+		if pool, err = x509.SystemCertPool(); err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.Errorf("%s_ca_cert: the file has no valid PEM certificate", opt)
+		}
+	}
+	if !verifyPeer {
+		log.Warnf("%s_with_tls is true and %s_verify_peer is false: the plugin does not check the server certificate. "+
+			"Set %s_verify_peer to true (and %s_ca_cert for a private CA).", opt, opt, opt, opt)
+		if caPath != "" {
+			log.Warnf("%s_ca_cert has no effect until %s_verify_peer is true", opt, opt)
+		}
+		return nil, nil
+	}
+	return pool, nil
+}
+
+// newRemoteClient builds the client of a remote backend. With verifyPeer false the server
+// certificate is not checked. With roots set, the server certificate is checked against roots.
+func newRemoteClient(timeout int, verifyPeer bool, roots *x509.CertPool) *h.Client {
+	c := &h.Client{Timeout: time.Duration(timeout) * time.Second}
+	if !verifyPeer {
+		c.Transport = &h.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			MaxIdleConns:    100,
 			IdleConnTimeout: 90 * time.Second,
 		}
-		http.Client.Transport = tr
+	} else if roots != nil {
+		tr := h.DefaultTransport.(*h.Transport).Clone()
+		tr.TLSClientConfig = &tls.Config{RootCAs: roots}
+		c.Transport = tr
 	}
-
-	return http, nil
+	return c
 }
 
 func (o HTTP) GetUser(username, password, clientid string) (bool, error) {

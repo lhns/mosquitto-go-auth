@@ -2,7 +2,6 @@ package backends
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,7 +10,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -161,16 +159,11 @@ func NewRemoteJWTChecker(authOpts map[string]string, options tokenOptions, versi
 		}
 	}
 
-	checker.client = &h.Client{Timeout: time.Duration(checker.timeout) * time.Second}
-
-	if !checker.verifyPeer {
-		tr := &h.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			MaxIdleConns:    100,
-			IdleConnTimeout: 90 * time.Second,
-		}
-		checker.client.Transport = tr
+	roots, err := remoteCAPool("jwt", checker.withTLS, checker.verifyPeer, authOpts["jwt_ca_cert"])
+	if err != nil {
+		return nil, errors.Errorf("JWT backend error: %s", err)
 	}
+	checker.client = newRemoteClient(checker.timeout, checker.verifyPeer, roots)
 
 	return checker, nil
 }
