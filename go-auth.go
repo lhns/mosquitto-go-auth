@@ -4,6 +4,7 @@ import "C"
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"runtime/debug"
 	"strconv"
@@ -374,7 +375,7 @@ func setCache(authOpts map[string]string) {
 
 //export AuthUnpwdCheck
 func AuthUnpwdCheck(username, password, clientid *C.char) (result uint8) {
-	defer recoverCheck("auth", &result)
+	defer recoverCheck("auth", &result, C.GoString(username), C.GoString(clientid))
 
 	var ok bool
 	var err error
@@ -486,7 +487,7 @@ func authUnpwdCheck(username, password, clientid string) (authenticated bool, er
 
 //export AuthAclCheck
 func AuthAclCheck(clientid, username, topic *C.char, acc C.int) (result uint8) {
-	defer recoverCheck("acl", &result)
+	defer recoverCheck("acl", &result, C.GoString(username), C.GoString(clientid))
 
 	var ok bool
 	var err error
@@ -597,12 +598,22 @@ func authResult(ok bool, err error) string {
 
 // recoverCheck turns a panic in a check into AuthError, which mosquitto treats as a denial.
 // Without it a panic in any backend or hasher crosses the cgo boundary and stops the broker.
-// The arguments are not logged: they can hold a password or a token.
-func recoverCheck(kind string, result *uint8) {
+// The arguments are not logged: they can hold a password or a token. The panic value can quote
+// them too, so when the username or the client ID may be a token only the type of the value is logged.
+func recoverCheck(kind string, result *uint8, username, clientid string) {
 	if r := recover(); r != nil {
-		log.Errorf("%s check panicked, denying: %v\n%s", kind, r, debug.Stack())
+		detail := fmt.Sprintf("%T", r)
+		if panicValueLoggable(username, clientid) {
+			detail = fmt.Sprintf("%v", r)
+		}
+		log.Errorf("%s check panicked, denying: %s\n%s", kind, detail, debug.Stack())
 		*result = AuthError
 	}
+}
+
+// panicValueLoggable tells if a panic value may be logged: it can quote the username or client ID.
+func panicValueLoggable(username, clientid string) bool {
+	return authPlugin.backends != nil && usernameLoggable(username) && usernameLoggable(clientid)
 }
 
 //export AuthPskKeyGet
