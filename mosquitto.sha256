@@ -1,0 +1,4 @@
+# SHA-256 of the Mosquitto source tarballs the builds download. A build of a version not listed here fails.
+# When you bump MOSQUITTO_VERSION, add its line: sha256sum mosquitto-<version>.tar.gz
+5ff2271512f745bf1a451072cd3768a5daed71e90c5179fae12b049d6c02aa0f  mosquitto-1.6.15.tar.gz
+fd905380691ac65ea5a93779e8214941829e3d6e038d5edff9eac5fd74cbed02  mosquitto-2.1.2.tar.gz
