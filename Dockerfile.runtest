@@ -20,7 +20,7 @@ WORKDIR /app
 # Get mosquitto build dependencies.
 # libedit-dev / libmicrohttpd-dev / libsqlite3-dev are required by Mosquitto 2.1+
 # (ctrl shell / HTTP API / broker persistence).
-RUN apt-get update && apt-get install -y libc-ares2 libc-ares-dev cmake libssl-dev uuid uuid-dev wget build-essential git libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev gnupg lsb-release
+RUN apt-get update && apt-get install -y libc-ares2 libc-ares-dev cmake libssl-dev uuid uuid-dev wget curl build-essential git libcjson-dev libedit-dev libmicrohttpd-dev libsqlite3-dev gnupg lsb-release
 
 # Get libwebsocket. Debian's libwebsockets is too old for Mosquitto version > 2.x so it gets built from source.
 RUN set -ex; \
@@ -47,7 +47,9 @@ RUN set -ex; \
 
 RUN mkdir -p mosquitto/auth mosquitto/conf.d
 
-RUN wget http://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
+COPY mosquitto.sha256 ./
+RUN curl --fail --location --proto '=https' --proto-redir '=https' --retry 10 --retry-all-errors --retry-delay 10 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz && \
+    grep " mosquitto-${MOSQUITTO_VERSION}.tar.gz\$" mosquitto.sha256 | sha256sum --strict -c -
 RUN tar xzvf mosquitto-${MOSQUITTO_VERSION}.tar.gz && rm mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
 # Build mosquitto.

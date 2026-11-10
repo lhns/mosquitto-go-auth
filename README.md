@@ -356,7 +356,9 @@ You may omit or set jitter options to 0 to disable this feature.
 
 If `cache_reset` is set to false or omitted, cache won't be flushed upon service start.
 
-When the `jwt` backend is on and the username is a JWT with an `exp` claim, a cached result for that token is not used after `exp`, also with `cache_refresh true`. An expired token is not stored. In `local` and `files` mode the cap does not apply to a login result when `jwt_skip_user_expiration` is true, and to an ACL result when both `jwt_skip_user_expiration` and `jwt_skip_acl_expiration` are true. An `exp` that is not a non-negative number disables caching for that token. In `remote` and `js` mode the server or script decides about `exp`, so the cap always applies.
+A cache time of 0 means "don't cache": with `auth_cache_seconds 0` (or `acl_cache_seconds 0`) auth (or ACL) results are neither stored nor read, in the memory cache and in Redis, and `cache_refresh` does not change that. A negative value counts as 0. The plugin logs one info line at startup when a cache is off. The other cache stays on.
+
+When the `jwt` backend is on and the username is a JWT with an `exp` claim, a cached result for that token is not used after `exp`, also with `cache_refresh true`. An expired token is not stored, and neither is a result of a backend call that was still running when the token expired. In `local` and `files` mode the cap does not apply to a login result when `jwt_skip_user_expiration` is true, and to an ACL result when both `jwt_skip_user_expiration` and `jwt_skip_acl_expiration` are true. An `exp` that is not a non-negative number disables caching for that token. In `remote` and `js` mode the server or script decides about `exp`, so the cap always applies.
 
 When using Redis, the following defaults will be used if no values are given. Also, these are the available options for cache:
 
@@ -375,6 +377,8 @@ auth_opt_cache_addresses host1:port1,host2:port2,host3:port3
 ```
 
 Notice that if `cache_mode` is not provided or isn't equal to `cluster`, cache will default to use a single instance with the common options. If instead the mode is set to `cluster` but no addresses are given, the plugin will default to not use a cache.
+
+Older configs that set `cache_mode true` still work: with that spelling and no `cache_addresses`, the cache uses `redis_cluster_addresses`. With `cluster` it never does, because `cache_reset` would flush the cluster of the Redis backend.
 
 ##### Cache keys
 
@@ -1744,7 +1748,7 @@ The plugin can export OpenTelemetry traces and metrics over OTLP/gRPC. It is **o
 
 Tracing covers `authUnpwdCheck`, `authAclCheck`, and each per-backend call; logrus entries inside a span get `trace_id` / `span_id` fields added automatically.
 
-When the `jwt` backend is configured, the username can be a token. Then the spans do not have the `auth.username` attribute, and the debug logs and the error texts of all backends (SQL, LDAP, HTTP, gRPC, JavaScript, mongo, redis, custom plugin) show `<hidden>` in place of the username. An error text that quotes only a part of the token (a cut-off copy, the signature) is hidden as a whole. When `use_clientid_as_username` is also set, the client ID carries the token, so the spans do not have the `auth.client_id` attribute either. The gRPC call log keeps the status code but not the error. For HTTP request errors and denials of the HTTP and remote JWT backends only the status is logged, not the reply text. With `files,jwt`, a files user whose name is a token would show in the "wrong password" warning of the files backend. The broker itself logs the username and client ID of each new connection; set `connection_messages false` in the mosquitto configuration to stop this.
+When the `jwt` backend is configured, the username can be a token. Then the spans do not have the `auth.username` attribute, and the debug logs and the error texts of all backends (SQL, LDAP, HTTP, gRPC, JavaScript, mongo, redis, custom plugin) show `<hidden>` in place of the username. An error text that quotes only a part of the token (a cut-off copy, the signature) is hidden as a whole, also when the token is percent-encoded in it. The log of the go-redis library and of the Mongo driver is turned off, because those libraries write it before the plugin can hide the token. When `use_clientid_as_username` is also set, the client ID carries the token, so the spans do not have the `auth.client_id` attribute either. The gRPC call log keeps the status code but not the error. For HTTP request errors and denials of the HTTP and remote JWT backends only the status is logged, not the reply text. With `files,jwt`, a files user whose name is a token would show in the "wrong password" warning of the files backend. The broker itself logs the username and client ID of each new connection; set `connection_messages false` in the mosquitto configuration to stop this.
 
 #### Metrics
 
