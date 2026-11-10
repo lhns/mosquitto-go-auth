@@ -44,7 +44,7 @@ WORKDIR /app
 RUN mkdir -p mosquitto/auth mosquitto/conf.d
 
 COPY mosquitto.sha256 ./
-RUN curl --fail --location --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors --retry-delay 5 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz && \
+RUN curl --fail --location --proto '=https' --proto-redir '=https' --retry 10 --retry-all-errors --retry-delay 10 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz && \
     grep " mosquitto-${MOSQUITTO_VERSION}.tar.gz\$" mosquitto.sha256 | sha256sum --strict -c -
 
 RUN tar xzvf mosquitto-${MOSQUITTO_VERSION}.tar.gz

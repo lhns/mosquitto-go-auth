@@ -19,7 +19,7 @@ jobs:
           path: mosquitto-go-auth
       - name: download mosquitto
         run: |
-          curl --fail --location --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors --retry-delay 5 -o mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz https://mosquitto.org/files/source/mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 10 --retry-all-errors --retry-delay 10 -o mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz https://mosquitto.org/files/source/mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz
           grep " mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz\$" mosquitto-go-auth/mosquitto.sha256 | sha256sum --strict -c -
           tar -zxf mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz
           mkdir -p output/linux-amd64 output/linux-arm64 output/linux-armv7 output/linux-armv6
