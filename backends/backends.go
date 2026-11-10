@@ -388,7 +388,8 @@ func hideText(text, username string) string {
 			text = strings.ReplaceAll(text, encoded, hiddenUsername)
 		}
 	}
-	if holdsUsernamePart(text, username) {
+	windows := newUsernameWindows(username)
+	if windows.in(text) {
 		return hiddenErrorText
 	}
 	// A client library can quote the username percent-encoded in every byte, which leaves no run of
@@ -399,20 +400,36 @@ func hideText(text, username string) string {
 			break
 		}
 		decoded = next
-		if strings.Contains(decoded, username) || holdsUsernamePart(decoded, username) {
+		if strings.Contains(decoded, username) || windows.in(decoded) {
 			return hiddenErrorText
 		}
 	}
 	return text
 }
 
-// holdsUsernamePart tells if text holds a truncatedTokenWindowLen long part of a long username.
-func holdsUsernamePart(text, username string) bool {
+// usernameWindows holds the truncatedTokenWindowLen long parts of a long username. A shorter
+// username has none.
+type usernameWindows map[string]struct{}
+
+func newUsernameWindows(username string) usernameWindows {
 	if len(username) < truncatedTokenMinLen {
+		return nil
+	}
+	windows := make(usernameWindows, len(username)-truncatedTokenWindowLen+1)
+	for i := 0; i+truncatedTokenWindowLen <= len(username); i++ {
+		windows[username[i:i+truncatedTokenWindowLen]] = struct{}{}
+	}
+	return windows
+}
+
+// in tells if text holds one of the windows. It looks at each position of text once, so the cost
+// is linear in the length of text, however long the username is.
+func (w usernameWindows) in(text string) bool {
+	if len(w) == 0 {
 		return false
 	}
-	for i := 0; i+truncatedTokenWindowLen <= len(username); i++ {
-		if strings.Contains(text, username[i:i+truncatedTokenWindowLen]) {
+	for i := 0; i+truncatedTokenWindowLen <= len(text); i++ {
+		if _, ok := w[text[i:i+truncatedTokenWindowLen]]; ok {
 			return true
 		}
 	}
