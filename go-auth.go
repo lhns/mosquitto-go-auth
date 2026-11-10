@@ -290,10 +290,11 @@ func setCache(authOpts map[string]string) {
 
 		if cluster {
 
-			// The README documents cache_addresses; redis_cluster_addresses (the Redis backend's option)
-			// is what the code read before, so it keeps working.
+			// The README documents cache_addresses. The old spelling cache_mode true read
+			// redis_cluster_addresses (the Redis backend's option) and keeps doing so. With cluster
+			// that fallback is not used: cache_reset would flush the cluster of the Redis backend.
 			addressesOpt := authOpts["cache_addresses"]
-			if addressesOpt == "" {
+			if addressesOpt == "" && authOpts["cache_mode"] == "true" {
 				addressesOpt = authOpts["redis_cluster_addresses"]
 			}
 			if addressesOpt == "" {

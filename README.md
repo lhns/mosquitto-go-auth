@@ -378,6 +378,8 @@ auth_opt_cache_addresses host1:port1,host2:port2,host3:port3
 
 Notice that if `cache_mode` is not provided or isn't equal to `cluster`, cache will default to use a single instance with the common options. If instead the mode is set to `cluster` but no addresses are given, the plugin will default to not use a cache.
 
+Older configs that set `cache_mode true` still work: with that spelling and no `cache_addresses`, the cache uses `redis_cluster_addresses`. With `cluster` it never does, because `cache_reset` would flush the cluster of the Redis backend.
+
 ##### Cache keys
 
 A cache key is a digest of its fields, with the form `mga:v5:<auth|acl>:<hex digest>`. The key does not contain the username, password, topic or client ID, but the client ID is one of the fields of both the auth and the ACL key, so a result cached for one client is not served to another. Keys of earlier versions are not read, so after an upgrade the cache starts empty.
