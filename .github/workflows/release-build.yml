@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: download mosquitto
         run: |
-          curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 -o mosquitto.tgz https://mosquitto.org/files/source/mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors --retry-delay 5 -o mosquitto.tgz https://mosquitto.org/files/source/mosquitto-${{ env.MOSQUITTO_VERSION }}.tar.gz
           tar -zxf mosquitto.tgz
           mkdir -p output/linux-amd64 output/linux-arm64 output/linux-armv7 output/linux-armv6
       - name: Checkout

@@ -43,7 +43,7 @@ WORKDIR /app
 
 RUN mkdir -p mosquitto/auth mosquitto/conf.d
 
-RUN curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
+RUN curl --fail --location --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors --retry-delay 5 -O https://mosquitto.org/files/source/mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
 RUN tar xzvf mosquitto-${MOSQUITTO_VERSION}.tar.gz
 
