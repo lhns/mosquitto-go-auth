@@ -988,17 +988,30 @@ The following options are supported by the `jwt` backend when remote is set to t
 | --------------------------- | --------- | :-------: | ------------------------------------------------------------- |
 | auth_opt_jwt_host           |           |    Y/N    | API server host name or ip                                    |
 | auth_opt_jwt_port           |           |     Y     | TCP port number                                               |
-| auth_opt_jwt_http_timeout   |     5     |     N     | Timeout in seconds for http client                            |
+| auth_opt_jwt_http_timeout   |     5     |     N     | Timeout in seconds for http client (0 or less, or too large: the default)   |
 | auth_opt_jwt_getuser_uri    |           |     Y     | URI for check username/password                               |
 | auth_opt_jwt_superuser_uri  |           |     N     | URI for check superuser                                       |
 | auth_opt_jwt_aclcheck_uri   |           |     Y     | URI for check acl                                             |
 | auth_opt_jwt_with_tls       | false     |     N     | Use TLS on connect                                            |
 | auth_opt_jwt_verify_peer    | false     |     N     | Whether to verify peer for tls                                |
+| auth_opt_jwt_ca_cert        |           |     N     | PEM file with CA certificates                                 |
 | auth_opt_jwt_response_mode  | status    |     N     | Response type (status, json, text)                            |
 | auth_opt_jwt_params_mode    | json      |     N     | Data type (json, form)                                        |
 | auth_opt_jwt_user_agent     | mosquitto |     N     | User agent for requests                                       |
 | auth_opt_jwt_http_method    | POST      |     N     | Http method used (POST, GET, PUT)                             |
 | auth_opt_jwt_host_whitelist |           |    Y/N    | List of hosts that are eligible to be an authoritative server |
+| auth_opt_jwt_follow_redirects | false   |     N     | Follow redirects (see below)                                  |
+
+The plugin accepts a 2xx response body of at most 1 MiB (1048576 bytes). It reads one more byte to find a longer body: a longer body is an error, and the check is refused. The plugin does not read the body of a response that is not 2xx. It discards at most 4 KiB of unread data before it closes a body.
+
+The plugin does not follow redirects. A 3xx response is a status that is not 2xx, so the check is refused without an error. Set the path options (for example `jwt_getuser_uri`) to the final path, and change `jwt_host`, `jwt_port` and `jwt_with_tls` when the final server is a different one. While redirects are off, the first 3xx status of each check type (user, superuser, ACL) logs a warning with the status. With `jwt_follow_redirects true`, the plugin follows redirects and logs a warning at startup. A followed redirect has these limits:
+
+- At most 3 redirects.
+- A redirect from `https` to `http` is refused, also after an earlier redirect. A redirect from `http` to `https` is accepted only for the same host name, and only to port 443 or to the port of the first request.
+- Other redirects must go to the same scheme, host and port as the first request. The plugin compares host names without case, and a URL without a port has the default port of its scheme (80 or 443). When `jwt_host` is empty (the issuer selects the host), a redirect with the same scheme can also go to a host in `jwt_host_whitelist`: an entry without a port means `jwt_port`. With `*`, any host is accepted.
+- The `Authorization` header (the token) goes only to a host that these rules accept. A refused redirect is not sent, and the check fails with an error.
+
+The default of `jwt_verify_peer` is `false`: with `jwt_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `jwt_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `jwt_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `jwt_verify_peer` is `false`, `jwt_ca_cert` has no effect, and the plugin logs a warning. When `jwt_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `jwt_with_tls` is `false`, the plugin ignores `jwt_ca_cert`.
 
 URIs (like jwt_getuser_uri) are expected to be in the form `/path`. For example, if jwt_with_tls is `false`, jwt_host is `localhost`, jwt_port `3000` and jwt_getuser_uri is `/user`, mosquitto will send a http request to `http://localhost:3000/user` to get a response to check against. How data is sent (either json encoded or as form values) and received (as a simple http status code, a json encoded response or plain text), is given by options jwt_response_mode and jwt_params_mode.
 
@@ -1248,12 +1261,24 @@ The following options are supported:
 | auth_opt_http_aclcheck_uri  |           |     Y     | URI for check acl                  |
 | auth_opt_http_with_tls      | false     |     N     | Use TLS on connect                 |
 | auth_opt_http_verify_peer   | false     |     N     | Whether to verify peer for tls     |
+| auth_opt_http_ca_cert       |           |     N     | PEM file with CA certificates      |
 | auth_opt_http_response_mode | status    |     N     | Response type (status, json, text) |
 | auth_opt_http_params_mode   | json      |     N     | Data type (json, form)             |
-| auth_opt_http_timeout       | 5         |     N     | Timeout in seconds                 |
+| auth_opt_http_timeout       | 5         |     N     | Timeout in seconds (0 or less, or too large: the default) |
 | auth_opt_http_user_agent    | mosquitto |     N     | User Agent to use in requests      |
 | auth_opt_http_method        | POST      |     N     | Http method used (POST, GET, PUT)  |
 | auth_opt_http_header_<name> |           |     N     | Extra header forwarded to backend  |
+| auth_opt_http_follow_redirects | false  |     N     | Follow redirects (see below)       |
+
+The plugin accepts a 2xx response body of at most 1 MiB (1048576 bytes). It reads one more byte to find a longer body: a longer body is an error, and the check is refused. The plugin does not read the body of a response that is not 2xx. It discards at most 4 KiB of unread data before it closes a body.
+
+The plugin does not follow redirects. A 3xx response is a status that is not 2xx, so the check is refused without an error. Set the path options (for example `http_getuser_uri`) to the final path, and change `http_host`, `http_port` and `http_with_tls` when the final server is a different one. While redirects are off, the first 3xx status of each check type (user, superuser, ACL) logs a warning with the status. With `http_follow_redirects true`, the plugin follows redirects and logs a warning at startup. A followed redirect has these limits:
+
+- At most 3 redirects.
+- A redirect from `https` to `http` is refused, also after an earlier redirect. A redirect from `http` to `https` is accepted only for the same host name, and only to port 443 or to the port of the first request.
+- Other redirects must go to the same scheme, host and port as the first request. The plugin compares host names without case, and a URL without a port has the default port of its scheme (80 or 443). A redirect to another host is refused, so the custom headers (`http_header_<name>`) never go to another host. A refused redirect is not sent, and the check fails with an error.
+
+The default of `http_verify_peer` is `false`: with `http_with_tls true`, the plugin does not check the server certificate, and it logs a warning at startup. Set `http_verify_peer true` to check the certificate against the system CA pool. For a private CA, set `http_ca_cert` to a PEM file with one or more CA certificates: the plugin then trusts the system CAs and these CAs. While `http_verify_peer` is `false`, `http_ca_cert` has no effect, and the plugin logs a warning. When `http_with_tls` is `true`, a file that cannot be read, or that has no valid PEM certificate, stops the start of the plugin. When `http_with_tls` is `false`, the plugin ignores `http_ca_cert`.
 
 #### Response mode
 
@@ -1568,12 +1593,22 @@ The following options are supported:
 | auth_opt_grpc_tls_key              |           |     N     | gRPC client TLS key path       |
 | auth_opt_grpc_disable_superuser    |   false   |     N     | disable superuser checks       |
 | auth_opt_grpc_fail_on_dial_error   |   false   |     N     | fail to init on dial error     |
+| auth_opt_grpc_timeout_ms           |   5000    |     N     | timeout of each check RPC in ms (0 or less, or too large: the default) |
 | auth_opt_grpc_dial_timeout_ms      |   500     |     N     | dial timeout in ms             |
+| auth_opt_grpc_insecure             |           |     N     | true: plaintext, false: TLS    |
 
 The last one, `grpc_fail_on_dial_error` indicates if failing to dial the service on initialization should be
 treated as a fatal error, or it should only be logged and then an attempt to redial should be made on every
 user or ACL check until the connection may be established. Then the backend will assume it has a healthy client
 and let the underlying package manage automatic reconnections.
+
+`grpc_insecure` selects TLS or plaintext for the connection to the service:
+
+- Not set: the behaviour does not change. With `grpc_ca_cert` the plugin uses TLS. Without it the plugin uses plaintext and logs a warning at startup.
+- `false`: the plugin requires TLS. It verifies the server with `grpc_ca_cert` when it is set, or with the system CAs when it is not.
+- `true`: the plugin uses plaintext and logs a warning at startup. The traffic and the credentials are not encrypted. With `grpc_ca_cert`, `grpc_tls_cert` or `grpc_tls_key` also set, the plugin does not start.
+
+Any other value stops the start of the plugin.
 
 #### Service
 

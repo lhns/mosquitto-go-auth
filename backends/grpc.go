@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"strconv"
 	"time"
 
@@ -29,16 +30,21 @@ type GRPC struct {
 	dialOptions      []grpc.DialOption
 	hostname         string
 	timeout          int
+	callTimeout      time.Duration // limit of each check RPC, see grpc_timeout_ms
 	name             string
 	hideToken        bool // a jwt backend is configured: the error text can echo the token
 }
 
-const defaultGRPCTimeoutMs = 500
+const (
+	defaultGRPCTimeoutMs     = 500
+	defaultGRPCCallTimeoutMs = 5000
+)
 
 // NewGRPC tries to connect to the gRPC service at the given host.
 func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 	g := &GRPC{
-		timeout: defaultGRPCTimeoutMs,
+		timeout:     defaultGRPCTimeoutMs,
+		callTimeout: defaultGRPCCallTimeoutMs * time.Millisecond,
 	}
 
 	if authOpts["grpc_host"] == "" || authOpts["grpc_port"] == "" {
@@ -59,13 +65,27 @@ func NewGRPC(authOpts map[string]string, logLevel log.Level) (*GRPC, error) {
 		}
 	}
 
+	if v, ok := authOpts["grpc_timeout_ms"]; ok {
+		if ms, err := strconv.ParseInt(v, 10, 64); err == nil && ms > 0 && ms <= math.MaxInt64/int64(time.Millisecond) {
+			g.callTimeout = time.Duration(ms) * time.Millisecond
+		} else {
+			log.Warnf("option grpc_timeout_ms must be a number of milliseconds above 0 and in the range of a duration, the default (%d) is used", defaultGRPCCallTimeoutMs)
+		}
+	}
+
 	caCert := authOpts["grpc_ca_cert"]
 	tlsCert := authOpts["grpc_tls_cert"]
 	tlsKey := authOpts["grpc_tls_key"]
 	addr := fmt.Sprintf("%s:%s", authOpts["grpc_host"], authOpts["grpc_port"])
 	withBlock := authOpts["grpc_fail_on_dial_error"] == "true"
 
-	options, err := setup(addr, caCert, tlsCert, tlsKey, withBlock, func() bool { return g.hideToken })
+	insecureOpt, ok := authOpts["grpc_insecure"]
+	if ok && insecureOpt == "" {
+		// An empty value is not "not set".
+		return nil, errors.New("grpc_insecure must be true or false")
+	}
+
+	options, err := setup(addr, caCert, tlsCert, tlsKey, insecureOpt, withBlock, func() bool { return g.hideToken })
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +109,9 @@ func (o *GRPC) GetUser(username, password, clientid string) (bool, error) {
 		Clientid: clientid,
 	}
 
-	resp, err := o.client.GetUser(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.GetUser(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -111,7 +133,9 @@ func (o *GRPC) GetSuperuser(username string) (bool, error) {
 		Username: username,
 	}
 
-	resp, err := o.client.GetSuperuser(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.GetSuperuser(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -132,7 +156,9 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 		Acc:      acc,
 	}
 
-	resp, err := o.client.CheckAcl(context.Background(), &req)
+	ctx, cancel := o.callContext()
+	defer cancel()
+	resp, err := o.client.CheckAcl(ctx, &req)
 
 	if err != nil {
 		err = hideToken(o.hideToken, err, username)
@@ -144,10 +170,21 @@ func (o *GRPC) CheckAcl(username, topic, clientid string, acc int32) (bool, erro
 
 }
 
+// callContext limits one RPC of a check to grpc_timeout_ms.
+func (o *GRPC) callContext() (context.Context, context.CancelFunc) {
+	t := o.callTimeout
+	if t <= 0 {
+		t = defaultGRPCCallTimeoutMs * time.Millisecond
+	}
+	return context.WithTimeout(context.Background(), t)
+}
+
 // GetName gets the gRPC backend's name.
 func (o *GRPC) GetName() string {
 	if len(o.name) == 0 {
-		resp, err := o.client.GetName(context.Background(), &empty.Empty{})
+		ctx, cancel := o.callContext()
+		defer cancel()
+		resp, err := o.client.GetName(ctx, &empty.Empty{})
 
 		if err != nil {
 			o.name = "gRPC"
@@ -171,9 +208,25 @@ func (o *GRPC) Halt() {
 	}
 }
 
+// setup builds the dial options. insecureOpt is the grpc_insecure option. When it is not set, a CA
+// selects TLS and no CA selects plaintext (as before). "false" requires TLS and uses the system
+// roots when there is no CA. "true" selects plaintext and conflicts with the TLS options.
 func setup(
-	hostname, caCert, tlsCert, tlsKey string, withBlock bool, hideToken func() bool,
+	hostname, caCert, tlsCert, tlsKey, insecureOpt string, withBlock bool, hideToken func() bool,
 ) ([]grpc.DialOption, error) {
+	useTLS := caCert != ""
+	switch insecureOpt {
+	case "":
+	case "false":
+		useTLS = true
+	case "true":
+		if caCert != "" || tlsCert != "" || tlsKey != "" {
+			return nil, errors.New("grpc_insecure is true, but grpc_ca_cert, grpc_tls_cert or grpc_tls_key is set")
+		}
+	default:
+		return nil, errors.New("grpc_insecure must be true or false")
+	}
+
 	logrusEntry := log.NewEntry(log.StandardLogger())
 	logrusOpts := []grpc_logrus.Option{
 		grpc_logrus.WithLevels(grpc_logrus.DefaultCodeToLevel),
@@ -198,22 +251,28 @@ func setup(
 		nsOpts = append(nsOpts, grpc.WithBlock())
 	}
 
-	if len(caCert) == 0 {
+	if !useTLS {
 		nsOpts = append(nsOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		log.WithField("server", hostname).Warning("creating insecure grpc client")
+		if insecureOpt == "true" {
+			log.WithField("server", hostname).Warning("creating insecure grpc client: grpc_insecure is true, so the traffic and the credentials are not encrypted")
+		} else {
+			log.WithField("server", hostname).Warning("creating insecure grpc client: no grpc_ca_cert is set. Set grpc_insecure to false to require TLS, or to true to confirm plaintext")
+		}
 	} else {
 		log.WithField("server", hostname).Info("creating grpc client")
 
-		caCertBytes, err := ioutil.ReadFile(caCert)
-		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("could not load grpc ca certificate (grpc_ca_cert) from file (%s)", caCert))
-		}
-		caCertPool := x509.NewCertPool()
-		if !caCertPool.AppendCertsFromPEM(caCertBytes) {
-			return nil, errors.New("append ca cert to pool error. Maybe the ca file (grpc_ca_cert) does not contain a valid x509 certificate")
-		}
-		tlsConfig := &tls.Config{
-			RootCAs: caCertPool,
+		// Without a CA, RootCAs stays nil: the system roots verify the server.
+		tlsConfig := &tls.Config{}
+		if caCert != "" {
+			caCertBytes, err := ioutil.ReadFile(caCert)
+			if err != nil {
+				return nil, errors.Wrap(err, fmt.Sprintf("could not load grpc ca certificate (grpc_ca_cert) from file (%s)", caCert))
+			}
+			caCertPool := x509.NewCertPool()
+			if !caCertPool.AppendCertsFromPEM(caCertBytes) {
+				return nil, errors.New("append ca cert to pool error. Maybe the ca file (grpc_ca_cert) does not contain a valid x509 certificate")
+			}
+			tlsConfig.RootCAs = caCertPool
 		}
 
 		if len(tlsCert) != 0 && len(tlsKey) != 0 {
