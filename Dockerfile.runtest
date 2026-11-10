@@ -90,4 +90,4 @@ RUN export PATH=$PATH:/usr/local/go/bin && go install github.com/cloudflare/cfss
 RUN export PATH=$PATH:/usr/local/go/bin && go install github.com/cloudflare/cfssl/cmd/cfssljson@v1.6.2 && cp ~/go/bin/cfssljson /usr/local/bin
 
 # Pre-compilation of test for speed-up latest re-run
-RUN export PATH=$PATH:/usr/local/go/bin && go test -c ./backends -o /dev/null
+RUN export PATH=$PATH:/usr/local/go/bin && go test -race -buildvcs=false -tags 'test,integration' -c ./backends -o /dev/null

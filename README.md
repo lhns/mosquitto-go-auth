@@ -586,11 +586,13 @@ Individual backends have their options described in the sections below.
 As of now every backend has proper but really ugly tests in place: they expect services running for each backend, and are also pretty outdated and cumbersome to work with in general.
 This issue captures these concerns and a basic plan to refactor tests: <https://github.com/iegomez/mosquitto-go-auth/issues/67>.
 
-You may run all tests (see Testing X for each backend's testing requirements) like this:
+`make test` runs the default suite. It does not need external services:
 
 ```
 make test
 ```
+
+`make test-integration` runs all tests, also the tests that need the backend services and the generated certificates (see Testing X for each backend's testing requirements). `run-test-in-docker.sh` starts these services and runs it.
 
 ### Registering checks
 
@@ -745,13 +747,21 @@ Queries work pretty much the same as in jpmen's plugin, so here's his discriptio
    rows for a particular user, each returning EXACTLY one column containing a
    topic (wildcards are supported). A single `'$1`' in the query string is
    replaced by the username attempting to access the broker, and a single `'$2`' is
-   replaced with the integer value `1` signifying a read-only access attempt
-   (SUB) or `2` signifying a read-write access attempt (PUB).
+   replaced with the access value of the request: `1` for READ, `2` for WRITE
+   and `4` for SUBSCRIBE. The plugin does not change the configured query: the
+   query decides which rows apply to which access value.
 
-   In the following example, the table has a column `rw` containing 1 for
-   readonly topics, 2 for writeonly topics and 3 for readwrite topics:
+   In the following example, the table has a column `rw` that is a bit-mask:
+   1 (READ) for readonly topics, 2 (WRITE) for writeonly topics and 3 for
+   readwrite topics. A SUBSCRIBE request (`$2` = 4) accepts the READ bit or the
+   SUBSCRIBE bit (4), so a row with `rw` = 4 also allows SUBSCRIBE only:
 
-   SELECT topic FROM acl WHERE (username = $1) AND rw = $2
+   SELECT topic FROM acl WHERE username = $1 AND (rw & CASE $2::int WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 4 THEN 5 ELSE 0 END) <> 0
+
+   Do not use `rw >= $2` or `rw = $2`: a comparison of this kind does not
+   follow the bit-mask. For example, `rw >= $2` lets a writeonly row (`rw` = 2)
+   match a READ request. A schema with its own subscribe column or bit is also
+   valid, if the query selects the rows that apply to the access value.
 
 
 When option pg_superquery is not present, Superuser check will always return false, hence there'll be no superusers.
@@ -868,8 +878,10 @@ SELECT COUNT(*) FROM account WHERE username = ? AND super = 1
 Acl query:
 
 ```sql
-SELECT topic FROM acl WHERE (username = ?) AND rw = ?
+SELECT topic FROM acl WHERE username = ? AND (rw & CASE ? WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 4 THEN 5 ELSE 0 END) <> 0
 ```
+
+The query receives two arguments: the username, then the access value (1 READ, 2 WRITE, 4 SUBSCRIBE). The column `rw` is a bit-mask (1 READ, 2 WRITE, 3 both) and SUBSCRIBE accepts the READ bit or the SUBSCRIBE bit (4). The query returns one column: a topic pattern. See the `postgres` section for more details.
 
 **DB connect tries**: on startup, depending on `auth_opt_mysql_connect_tries` option, the plugin will try to connect and ping the DB a max number of times or forever every 2 seconds.
 By default it will try to reconnect forever to maintain backwards compatibility and avoid issues when `mosquitto` starts before the DB service does,
@@ -945,8 +957,10 @@ sqlite_userquery SELECT pass FROM account WHERE username = ? limit 1
 
 sqlite_superquery SELECT COUNT(*) FROM account WHERE username = ? AND super = 1
 
-sqlite_aclquery SELECT topic FROM acl WHERE (username = ?) AND rw >= ?
+sqlite_aclquery SELECT topic FROM acl WHERE username = ? AND (rw & CASE ? WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 4 THEN 5 ELSE 0 END) <> 0
 ```
+
+The arguments, the column `rw` and the result are the same as for `mysql`.
 
 **DB connect tries**: on startup, depending on `sqlite_connect_tries` option, the plugin will try to connect and ping the DB a max number of times or forever every 2 seconds.
 By default it will try to reconnect forever to maintain backwards compatibility and avoid issues when `mosquitto` starts before the DB service does,
@@ -1545,7 +1559,9 @@ You can build your plugin with:
 
 `go build -buildmode=plugin`
 
-Check the plugin directory for dummy example and makefile.
+Check the plugin directory for dummy example and makefile. The example has the `customplugin` build tag, so build it with:
+
+`go build -tags customplugin -buildmode=plugin -o plugin.so .`
 
 #### Testing Custom
 
@@ -1823,7 +1839,7 @@ docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.s
 You may even specify the command to run after backends are started, which allow
 to run only some tests or even get a shell inside the containers:
 ```
-docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh make test-backends
+docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh make test-integration
 
 docker run -v $(pwd):/app --rm -ti mosquitto-go-auth.test ./run-test-in-docker.sh bash
 ```
