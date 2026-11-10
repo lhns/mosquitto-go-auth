@@ -89,9 +89,16 @@ func TestClientLogs_MongoDriverLogs(t *testing.T) {
 			if withJWT {
 				authOpts["backends"] = "mongo,jwt"
 			}
+			// NewMongo sets the global log level.
+			oldLevel := log.GetLevel()
+			t.Cleanup(func() { log.SetLevel(oldLevel) })
 			m, err := NewMongo(authOpts, log.ErrorLevel, hashing.NewHasher(authOpts, "mongo"))
 			require.NoError(t, err)
-			_, _ = m.GetUser(clientLogToken, "pw", "cid")
+			// A user that does not exist gives (false, nil): an error means the command never ran,
+			// and then the test would pass without showing anything.
+			ok, err := m.GetUser(clientLogToken, "pw", "cid")
+			require.NoError(t, err, "the Mongo server must be reachable for this test")
+			require.False(t, ok)
 
 			// With the log off the driver never opens the file.
 			data, err := os.ReadFile(logPath)
