@@ -214,7 +214,14 @@ func (s *redisStore) Connect(ctx context.Context, reset bool) bool {
 		log.Infoln("started redis cache")
 		//Check if cache must be reset
 		if reset {
-			s.client.FlushDB(ctx)
+			// On a cluster FLUSHDB reaches one master only (before Redis 7), so flush every master.
+			err := s.client.ForEachMaster(ctx, func(ctx context.Context, node *goredis.Client) error {
+				return node.FlushDB(ctx).Err()
+			})
+			if err != nil {
+				log.Errorf("couldn't flush redis cache. error: %s", err)
+				return false
+			}
 			log.Infoln("flushed redis cache")
 		}
 	}
