@@ -306,14 +306,15 @@ func TestFiles(t *testing.T) {
 	})
 
 	Convey("On Reload files should be reloaded", t, func() {
-		pwFile, err := os.Create("../../test-files/test-passwords")
+		dir := t.TempDir()
+		pwFile, err := os.Create(filepath.Join(dir, "test-passwords")) //nolint:gosec // path is in t.TempDir()
 		So(err, ShouldBeNil)
-		aclFile, err := os.Create("../../test-files/test-acls")
+		aclFile, err := os.Create(filepath.Join(dir, "test-acls")) //nolint:gosec // path is in t.TempDir()
 		So(err, ShouldBeNil)
 
-		pwPath, err := filepath.Abs("../../test-files/test-passwords")
+		pwPath, err := filepath.Abs(filepath.Join(dir, "test-passwords"))
 		So(err, ShouldBeNil)
-		aclPath, err := filepath.Abs("../../test-files/test-acls")
+		aclPath, err := filepath.Abs(filepath.Join(dir, "test-acls"))
 		So(err, ShouldBeNil)
 
 		defer os.Remove(pwPath)

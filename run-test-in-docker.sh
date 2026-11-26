@@ -189,7 +189,10 @@ export PATH=$PATH:/usr/local/go/bin
 set -x
 
 if [ "$#" -eq 0 ]; then
-    make test
+    # Compile and link the default suite (no integration tag) without running it, then run the
+    # integration suite. "make all" writes go-auth.h, which the root package needs. The script has
+    # no "set -e", so && stops at the first failure.
+    make all && go test -race -buildvcs=false -tags test -exec /bin/true ./... && make test-integration
 else
     exec "$@"
 fi

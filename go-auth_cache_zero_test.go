@@ -13,6 +13,12 @@ import (
 // A cache time of 0 (or less) means that cache is off: results are neither stored nor read,
 // in the memory store and in Redis, and the startup log says so once.
 func TestSetCacheZeroSecondsIsOff(t *testing.T) {
+	testSetCacheZeroSecondsIsOff(t, "memory")
+}
+
+// testSetCacheZeroSecondsIsOff runs the cases for each cache type. The redis type needs a server,
+// see go-auth_cache_zero_redis_test.go.
+func testSetCacheZeroSecondsIsOff(t *testing.T, cacheTypes ...string) {
 	saved := authPlugin
 	oldLevel := log.GetLevel()
 	oldHooks := log.StandardLogger().ReplaceHooks(make(log.LevelHooks))
@@ -36,7 +42,7 @@ func TestSetCacheZeroSecondsIsOff(t *testing.T) {
 		{"both on", "30", "30", true, true},
 	}
 
-	for _, cacheType := range []string{"memory", "redis"} {
+	for _, cacheType := range cacheTypes {
 		for _, tc := range cases {
 			t.Run(cacheType+" "+tc.name, func(t *testing.T) {
 				hook.Reset()
