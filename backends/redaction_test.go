@@ -308,7 +308,7 @@ func TestRedaction_HTTPRequestError(t *testing.T) {
 		t.Run(fmt.Sprintf("hide=%t", hide), func(t *testing.T) {
 			o := httpForRedaction(t, srv.URL, hide)
 			hook := captureDebugLogs(t)
-			_, err := o.httpRequest("/user?u="+sentinelToken, sentinelToken, map[string]interface{}{}, nil)
+			_, err := o.httpRequest("user", "/user?u="+sentinelToken, sentinelToken, map[string]interface{}{}, nil)
 			require.Error(t, err)
 			require.Equal(t, !hide, strings.Contains(err.Error(), sentinelToken))
 			require.Equal(t, !hide, logsContain(hook, sentinelToken))
